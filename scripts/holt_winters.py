@@ -172,6 +172,9 @@ def run_holt_winters(series_dir: str, selected_json: str, split_info_path: str,
 
     # Save metrics and predictions
     m_df = pd.DataFrame(all_metrics)
+    m_df['model_type'] = m_df['best_m'].apply(
+        lambda m: 'seasonal_hw' if m > 0 else ('non_seasonal_holt' if m == 0 else 'mean_fallback')
+    )
     p_df = pd.concat([pd.DataFrame(val_records), pd.DataFrame(test_records)], ignore_index=True)
 
     metrics_path = os.path.join(output_dir, "hw_metrics.csv")
@@ -183,7 +186,12 @@ def run_holt_winters(series_dir: str, selected_json: str, split_info_path: str,
     print(f"\nSaved Holt-Winters evaluation metrics to: {metrics_path}")
     print(f"Saved Holt-Winters aligned predictions to: {preds_path}")
 
-    # Display Macro-Averages
+    # Display Macro-Averages and Breakdown
+    n_total = max(1, len(m_df))
+    n_seasonal = int((m_df['best_m'] > 0).sum())
+    n_non_seasonal = int((m_df['best_m'] == 0).sum())
+    n_fallback = int((m_df['best_m'] < 0).sum())
+
     print("\n" + "=" * 65)
     print("         HOLT-WINTERS (B2 BASELINE) MACRO-AVERAGE SUMMARY")
     print("=" * 65)
@@ -195,6 +203,9 @@ def run_holt_winters(series_dir: str, selected_json: str, split_info_path: str,
     print(f"Under-provision Mean     : {m_df['under_prov_mean'].mean():.4f}")
     print(f"Clip Fraction            : {m_df['clip_fraction'].mean():.2%}")
     print(f"Selected Seasonality (m) : {m_df['best_m'].value_counts().to_dict()}")
+    print(f"Model Type Breakdown     : Seasonal HW: {n_seasonal}/{n_total} ({n_seasonal/n_total:.1%}) | "
+          f"Non-Seasonal Holt: {n_non_seasonal}/{n_total} ({n_non_seasonal/n_total:.1%}) | "
+          f"Fallback: {n_fallback}/{n_total} ({n_fallback/n_total:.1%})")
     print("=" * 65)
 
 
