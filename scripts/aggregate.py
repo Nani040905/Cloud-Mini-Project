@@ -212,6 +212,9 @@ def aggregate_existing_parquets(filtered_dir: str, output_dir: str):
     df_list = [pd.read_parquet(f) for f in parquet_files]
     full_df = pd.concat(df_list, ignore_index=True)
 
+    full_df = full_df.dropna(subset=['machine_id']).copy()
+    full_df['machine_id'] = full_df['machine_id'].astype(np.int64)
+
     print(f"Total task records: {len(full_df):,}")
     print(f"Unique machines: {full_df['machine_id'].nunique()}")
 
@@ -229,7 +232,8 @@ def aggregate_existing_parquets(filtered_dir: str, output_dir: str):
     bin_timestamps = min_sec + np.arange(total_windows) * BIN_SECONDS
     summary_stats = []
 
-    for mid, group in full_df.groupby('machine_id'):
+    from tqdm import tqdm
+    for mid, group in tqdm(full_df.groupby('machine_id'), desc="Aggregating machines"):
         res = aggregate_machine_vectorized(group, total_windows=total_windows, start_epoch_sec=min_sec)
         clean_cpu  = clean_and_fill_gaps(res['cpu'], res['touched'], max_gap=2)
         clean_mem  = clean_and_fill_gaps(res['mem'], res['touched'], max_gap=2)
@@ -243,14 +247,14 @@ def aggregate_existing_parquets(filtered_dir: str, output_dir: str):
             'disk': clean_disk.values,
             'touched': res['touched']
         })
-        m_series_df.to_parquet(os.path.join(series_dir, f"{mid}.parquet"), index=False)
+        m_series_df.to_parquet(os.path.join(series_dir, f"{int(mid)}.parquet"), index=False)
 
         nan_pct = clean_cpu.isna().mean()
         mean_cpu = clean_cpu.dropna().mean() if len(clean_cpu.dropna()) > 0 else 0.0
         std_cpu  = clean_cpu.dropna().std() if len(clean_cpu.dropna()) > 1 else 0.0
 
         summary_stats.append({
-            'machine_id': mid,
+            'machine_id': int(mid),
             'records': len(group),
             'nan_fraction': nan_pct,
             'cpu_mean': mean_cpu,
