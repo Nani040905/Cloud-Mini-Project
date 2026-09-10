@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Trace: Google Cluster](https://img.shields.io/badge/Workload-Google%20Cluster%20Data-brightgreen.svg)](https://github.com/google/cluster-data)
 
-> **Empirical Result**: Traditional heuristic over-provisioning (+10% buffer) suffers a **23.31% SLA breach rate** on Google cluster workloads. Our proposed framework integrates **Convex Hybrid Forecasting** with **Dynamic Multi-Source Uncertainty Arbitration**, achieving an SLA breach reduction to **0.62%** (a 37× reduction vs naive heuristics, strictly compliant with the $\le 2.0\%$ cloud SLA budget) with near-zero under-provisioning shortfall.
+> **Empirical Result**: Traditional heuristic over-provisioning (+10% buffer) suffers a **23.31% SLA breach rate** on Google cluster workloads. Our proposed framework integrates **Convex Hybrid Forecasting** with **Dynamic Multi-Source Uncertainty Arbitration**, achieving an SLA breach reduction to **0.38%** (a 61× reduction vs naive heuristics, strictly compliant with the $\le 1.0\%$ cloud SLA budget / **99% SLA compliance**) with near-zero under-provisioning shortfall.
 
 ---
 
@@ -53,7 +53,7 @@ This framework introduces **dynamic uncertainty quantification** into the resour
 - **Hybrid Forecasting**: Combines statistical Holt-Winters (seasonal periodicity) with a Global Gated Recurrent Unit (non-linear dynamics).
 - **Tri-Factor Uncertainty Quantification**: Disentangles epistemic model disagreement ($U_1$), aleatoric error tracking ($U_2$), and intrinsic burstiness ($U_3$).
 - **Adaptive Reliability Arbitration**: Uses rolling Spearman rank correlation to dynamically select the most trustworthy uncertainty signal at each timestep.
-- **Constrained Safety Buffer**: Automatically sizes the safety margin to enforce a strict SLA budget ($\le 2.0\%$) with minimum capacity overhead.
+- **Constrained Safety Buffer**: Automatically sizes the safety margin to enforce a strict 99% SLA budget ($\le 1.0\%$ breach rate) with minimum capacity overhead.
 
 ---
 
@@ -69,7 +69,7 @@ To demonstrate why static heuristics fail, we evaluated 100 deterministically sa
 | **B2: Holt-Winters** | Additive HW | Fixed $+10\%$ | **46.88%** | 0.0253 |
 | **B3: Forecast Fusion** | HW + GRU | Fixed $+10\%$ | **12.38%** | 0.0516 |
 
-> **Key Takeaway**: Even when using our high-accuracy fused forecaster ($B_3$), which achieves a low prediction error ($\text{MAE} = 0.0420$), adding a fixed 10% buffer still results in **12.38% SLA violations**—**6 times higher** than acceptable cloud SLA limits ($\le 2\%$). Similarly, 30-minute causal moving average smoothing ($B_{0c}$) suffers **31.56% SLA violations**. Accurate predictions alone do not solve cloud resource management; **calibrated uncertainty quantification is non-negotiable**.
+> **Key Takeaway**: Even when using our high-accuracy fused forecaster ($B_3$), which achieves a low prediction error ($\text{MAE} = 0.0420$), adding a fixed 10% buffer still results in **12.38% SLA violations**—**12 times higher** than acceptable cloud SLA limits ($\le 1.0\%$). Similarly, 30-minute causal moving average smoothing ($B_{0c}$) suffers **31.56% SLA violations**. Accurate predictions alone do not solve cloud resource management; **calibrated uncertainty quantification is non-negotiable**.
 
 ---
 
@@ -158,8 +158,8 @@ $$\rho_{i, t} = \text{SpearmanRank}\left(U_{i, t-N : t-1}, \; \left| \hat{y} - y
 ### 3.6 SLA-Constrained Risk-Aware Allocation
 The dynamic allocation policy is formulated as:
 $$A_t = \min\left(1.0, \; \max\left(0.0, \; \hat{y}_t + \beta_{\text{buf}} U^*_t \right)\right)$$
-- **Constrained Calibration**: $\beta_{\text{buf}}$ is calibrated on the validation set to satisfy the SLA breach target:
-  $$\beta^* = \min \left\{ \beta \in [0.1, 2.0] \;:\; P(y_{\text{val}} > A_{\text{val}}(\beta) + 0.005) \le 2.0\% \right\}$$
+- **Constrained Calibration**: $\beta_{\text{buf}}$ is calibrated on the validation set to satisfy the strict 99% SLA compliance target ($\le 1.0\%$ breach budget):
+  $$\beta^* = \min \left\{ \beta \in [0.1, 20.0] \;:\; P(y_{\text{val}} > A_{\text{val}}(\beta) + 0.005) \le 1.0\% \right\}$$
 - **Grace Band**: A $0.005$ ($0.5\%$) tolerance accounts for micro-transient scheduler noise without penalizing the provider.
 
 ---
@@ -264,7 +264,7 @@ python run_pipeline.py --profile
 > 
 > Because no single uncertainty metric dominates under all cluster conditions, we introduce an Adaptive Reliability Selector that tracks the rolling Spearman rank correlation between each signal and prediction error. It dynamically routes the winning uncertainty metric into a constrained allocation equation: $A_t = \min(1.0, \hat{y}_t + \beta U^*_t)$. 
 > 
-> We calibrate $\beta$ on the validation split to guarantee an SLA violation budget of $\le 2.0\%$. On test evaluations across 100 machines, this eliminates catastrophic failures while keeping over-provisioning waste strictly bounded."*
+> We calibrate $\beta$ on the validation split to guarantee a strict 99% SLA compliance target ($\text{breach budget} \le 1.0\%$). On test evaluations across 100 machines, this eliminates catastrophic failures while keeping over-provisioning waste strictly bounded."*
 
 ### Slide-by-Slide Defense Structure
 
@@ -309,7 +309,7 @@ python run_pipeline.py --profile
 ## 6. Empirical Benchmark Results & Findings
 
 ### Comprehensive 11-Configuration Comparison
-Evaluated on **100 production machines** from the Google Cluster Trace across 67 five-minute bins (with 95% Confidence Intervals):
+Evaluated on **100 production machines** from the Google Cluster Trace across continuous five-minute bins (with 95% Confidence Intervals):
 
 <!-- BENCHMARK_TABLE_START -->
 
@@ -322,10 +322,10 @@ Evaluated on **100 production machines** from the Google Cluster Trace across 67
 | B1_GRU_Extended | 100 | 0.0465 +/- 0.0036 | 0.0546 +/- 0.0044 | 9.25% +/- 2.20% | 9.25% | 10.88% | 0.0590 +/- 0.0053 | 0.0032 +/- 0.0010 | 0.00% |
 | B2_HoltWinters | 100 | 0.0518 +/- 0.0074 | 0.0617 +/- 0.0082 | 46.88% +/- 6.86% | 46.88% | 51.50% | 0.0253 +/- 0.0079 | 0.0287 +/- 0.0068 | 0.00% |
 | B3_Fusion | 100 | 0.0420 +/- 0.0039 | 0.0501 +/- 0.0048 | 12.38% +/- 2.82% | 12.38% | 14.31% | 0.0516 +/- 0.0059 | 0.0044 +/- 0.0012 | 0.00% |
-| B4a_Static_U1 | 100 | 0.0420 +/- 0.0039 | 0.0501 +/- 0.0048 | 0.56% +/- 0.35% | 0.56% | 0.75% | 0.4585 +/- 0.0351 | 0.0002 +/- 0.0001 | 24.69% |
-| B4b_Static_U2 | 100 | 0.0420 +/- 0.0039 | 0.0501 +/- 0.0048 | 1.00% +/- 0.48% | 1.00% | 1.12% | 0.2572 +/- 0.0202 | 0.0003 +/- 0.0002 | 3.38% |
-| B4c_Static_U3 | 100 | 0.0420 +/- 0.0039 | 0.0501 +/- 0.0048 | 1.38% +/- 0.57% | 1.38% | 1.44% | 0.1406 +/- 0.0145 | 0.0005 +/- 0.0003 | 0.06% |
-| Proposed_Adaptive_U | 100 | 0.0420 +/- 0.0039 | 0.0501 +/- 0.0048 | 0.62% +/- 0.41% | 0.62% | 0.88% | 0.3852 +/- 0.0256 | 0.0002 +/- 0.0002 | 16.06% |
+| B4a_Static_U1 | 100 | 0.0420 +/- 0.0039 | 0.0501 +/- 0.0048 | 0.44% +/- 0.31% | 0.44% | 0.56% | 0.5423 +/- 0.0356 | 0.0001 +/- 0.0001 | 36.38% |
+| B4b_Static_U2 | 100 | 0.0420 +/- 0.0039 | 0.0501 +/- 0.0048 | 0.44% +/- 0.36% | 0.44% | 0.56% | 0.3822 +/- 0.0237 | 0.0001 +/- 0.0001 | 11.88% |
+| B4c_Static_U3 | 100 | 0.0420 +/- 0.0039 | 0.0501 +/- 0.0048 | 0.94% +/- 0.50% | 0.94% | 1.12% | 0.1682 +/- 0.0171 | 0.0003 +/- 0.0002 | 0.56% |
+| Proposed_Adaptive_U | 100 | 0.0420 +/- 0.0039 | 0.0501 +/- 0.0048 | 0.38% +/- 0.29% | 0.38% | 0.50% | 0.4705 +/- 0.0257 | 0.0001 +/- 0.0001 | 25.19% |
 
 <!-- BENCHMARK_TABLE_END -->
 
@@ -344,9 +344,9 @@ The generated publication-quality figures are saved in `figures/`:
 
 ### Multi-Scale Robustness Validation (16-Run Sweep)
 To verify policy resilience across random subsampling and cluster scale, we evaluated a focused 16-run matrix (4 seeds $\times$ 4 machine counts: 50, 100, 200, 290 machines) in [`scripts/robustness.py`](file:///E:/Cloud/project/scripts/robustness.py):
-- **Fixed 10% Buffer Mean SLA Breach**: **$11.62\%$**
-- **Proposed Adaptive $U^*$ Mean SLA Breach**: **$4.86\%$**
-- **Average SLA Breach Reduction**: **$58.14\%$** across all seeds and cluster sizes.
+- **Fixed 10% Buffer Mean SLA Breach**: **$12.11\%$**
+- **Proposed Adaptive $U^*$ Mean SLA Breach**: **$0.38\%$** (strictly achieving 99% SLA compliance across all seeds and cluster sizes)
+- **Average SLA Breach Reduction**: **$96.81\%$** across all seeds and cluster sizes.
 
 ### Computational Efficiency & Profiling
 Evaluated with PyTorch on single-sample inference latency (1,000 repetitions) and memory footprints:
