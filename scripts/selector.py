@@ -60,63 +60,98 @@ def tune_window_n(val_df: pd.DataFrame) -> int:
     return best_n
 
 
-def run_selector_single_machine(m_df: pd.DataFrame, window_n: int):
+def evaluate_selector_on_split(eval_df: pd.DataFrame, history_buffer: pd.DataFrame, window_n: int) -> pd.DataFrame:
     """
-    Applies the adaptive selector across a continuous time sequence spanning val and test.
+    Applies the adaptive selector to eval_df using history_buffer to supply lookback observations.
+    If history_buffer has >= window_n points, every timestep t in eval_df has a full window_n lookback.
+    If history_buffer has < window_n points, timesteps with fewer than window_n historical observations
+    are marked with no_pos_signal=True, strictly avoiding shortened window artifacts.
     """
-    val_test_df = m_df[m_df['split'].isin(['val', 'test'])].sort_values('bin_idx').copy()
-    n_total = len(val_test_df)
+    if len(eval_df) == 0:
+        return eval_df
 
-    u1_vals = val_test_df['U1'].values
-    u2_vals = val_test_df['U2'].values
-    u3_vals = val_test_df['U3'].values
-    err_vals = val_test_df['abs_error'].values
+    res_df = eval_df.copy()
+    n_eval = len(res_df)
+
+    if history_buffer is not None and len(history_buffer) > 0:
+        combined = pd.concat([history_buffer, res_df], ignore_index=True)
+        buf_len = len(history_buffer)
+    else:
+        combined = res_df
+        buf_len = 0
+
+    u1_vals = combined['U1'].values
+    u2_vals = combined['U2'].values
+    u3_vals = combined['U3'].values
+    err_vals = combined['abs_error'].values
     sig_matrix = np.column_stack([u1_vals, u2_vals, u3_vals])
 
     chosen_signals, chosen_u_vals = [], []
     rho_u1_l, rho_u2_l, rho_u3_l = [], [], []
     no_pos_flags = []
 
-    eff_n = min(window_n, max(5, n_total // 2))
+    for i in range(n_eval):
+        curr_idx = buf_len + i
+        w_start = curr_idx - window_n
 
-    for t in range(n_total):
-        w_start = max(0, t - eff_n)
-        if t - w_start < 3:
+        if w_start < 0:
+            # Fewer than window_n historical points: no shortened window, flag as insufficient history
             curr_rhos = [0.0, 0.0, 0.0]
             best_idx = 0
             no_pos = True
         else:
-            w_err = err_vals[w_start:t]
+            w_err = err_vals[w_start:curr_idx]
             curr_rhos = [
-                fast_spearman(u1_vals[w_start:t], w_err),
-                fast_spearman(u2_vals[w_start:t], w_err),
-                fast_spearman(u3_vals[w_start:t], w_err)
+                fast_spearman(u1_vals[w_start:curr_idx], w_err),
+                fast_spearman(u2_vals[w_start:curr_idx], w_err),
+                fast_spearman(u3_vals[w_start:curr_idx], w_err)
             ]
 
             # Positive-rho preference rule
-            pos_indices = [i for i, r in enumerate(curr_rhos) if r > 0.0]
+            pos_indices = [idx for idx, r in enumerate(curr_rhos) if r > 0.0]
             if pos_indices:
-                best_idx = max(pos_indices, key=lambda i: curr_rhos[i])
+                best_idx = max(pos_indices, key=lambda idx: curr_rhos[idx])
                 no_pos = False
             else:
                 best_idx = int(np.argmax(curr_rhos))
                 no_pos = True
 
         chosen_signals.append(SIGNALS[best_idx])
-        chosen_u_vals.append(sig_matrix[t, best_idx])
+        chosen_u_vals.append(sig_matrix[curr_idx, best_idx])
         rho_u1_l.append(curr_rhos[0])
         rho_u2_l.append(curr_rhos[1])
         rho_u3_l.append(curr_rhos[2])
         no_pos_flags.append(no_pos)
 
-    val_test_df['chosen_signal'] = chosen_signals
-    val_test_df['U_star'] = chosen_u_vals
-    val_test_df['rho_U1'] = rho_u1_l
-    val_test_df['rho_U2'] = rho_u2_l
-    val_test_df['rho_U3'] = rho_u3_l
-    val_test_df['no_pos_signal'] = no_pos_flags
+    res_df['chosen_signal'] = chosen_signals
+    res_df['U_star'] = chosen_u_vals
+    res_df['rho_U1'] = rho_u1_l
+    res_df['rho_U2'] = rho_u2_l
+    res_df['rho_U3'] = rho_u3_l
+    res_df['no_pos_signal'] = no_pos_flags
 
-    return val_test_df
+    return res_df
+
+
+def run_selector_single_machine(m_df: pd.DataFrame, window_n: int):
+    """
+    Applies the adaptive selector across a continuous time sequence spanning val and test.
+    Uses validation history buffer so that test begins immediately with a full N-window,
+    strictly avoiding shortened windows.
+    """
+    m_sorted = m_df.sort_values('bin_idx').copy()
+    val_df = m_sorted[m_sorted['split'] == 'val'].copy()
+    test_df = m_sorted[m_sorted['split'] == 'test'].copy()
+
+    # Process validation split (evaluates when full window_n observations exist)
+    val_res = evaluate_selector_on_split(eval_df=val_df, history_buffer=None, window_n=window_n)
+
+    # Process test split: prepend validation history buffer of length window_n
+    # so test t=0 immediately has a full window_n lookback
+    val_history_buffer = val_df.iloc[-window_n:] if len(val_df) >= window_n else val_df
+    test_res = evaluate_selector_on_split(eval_df=test_df, history_buffer=val_history_buffer, window_n=window_n)
+
+    return pd.concat([val_res, test_res], ignore_index=True)
 
 
 def run_reliability_selector(uncertainty_csv: str, output_dir: str):
