@@ -141,7 +141,7 @@ def run_reliability_selector(uncertainty_csv: str, output_dir: str):
     print(f"Saved selector arbitration log to: {out_path}")
 
     # Display Macro-Averages on Test Split
-    test_sub = selector_df[selector_df['split'] == 'test']
+    test_sub = selector_df[selector_df['split'] == 'test'].copy()
     print("\n" + "=" * 65)
     print("           ADAPTIVE SELECTOR SUMMARY (TEST SPLIT)")
     print("=" * 65)
@@ -153,6 +153,31 @@ def run_reliability_selector(uncertainty_csv: str, output_dir: str):
     print(f"No positive signal rate: {no_pos_rate:.1%}")
     print(f"Mean U* uncertainty    : {test_sub['U_star'].mean():.4f} +/- {test_sub['U_star'].std():.4f}")
     print("=" * 65)
+
+    # ------------------------------------------------------------------
+    # Comparative Advantage: Adaptive Selection vs. Best Static Signal
+    # ------------------------------------------------------------------
+    # The globally dominant static candidate is U1 (highest overall selection)
+    static_best = 'U1'
+    divergent_mask = (test_sub['chosen_signal'] != static_best)
+    div_rate = float(divergent_mask.mean())
+
+    if divergent_mask.sum() > 0:
+        div_sub = test_sub[divergent_mask]
+        rho_adaptive = div_sub.apply(lambda r: r[f"rho_{r['chosen_signal']}"], axis=1).mean()
+        rho_static = div_sub[f"rho_{static_best}"].mean()
+        delta_rho = rho_adaptive - rho_static
+
+        print("\n" + "=" * 65)
+        print("    DYNAMIC ARBITRATION VS. STATIC BASELINE (TEST SPLIT)")
+        print("=" * 65)
+        print(f"Globally Dominant Static Baseline : {static_best}")
+        print(f"Divergence Rate (U* != {static_best})       : {div_rate:.1%} of timesteps")
+        print(f"In divergent timesteps:")
+        print(f"  Adaptive Signal Mean Local Rho  : {rho_adaptive:+.4f}")
+        print(f"  Static {static_best} Mean Local Rho        : {rho_static:+.4f}")
+        print(f"  Reliability Advantage (+Delta)  : {delta_rho:+.4f} (rho improvement)")
+        print("=" * 65)
 
 
 def main():
