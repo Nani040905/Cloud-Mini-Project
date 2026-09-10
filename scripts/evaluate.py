@@ -110,24 +110,44 @@ def consolidate_results(results_dir: str, models_dir: str):
             }
 
         stats_dict = {}
+        pooled_dict = {}
+        weights = valid_grp['valid_count'].values if 'valid_count' in valid_grp.columns else np.ones(len(valid_grp))
+        total_timesteps = int(weights.sum())
+
         for col in ['mae', 'rmse', 'sla_breach_rate', 'overshoot_rate', 'over_prov_mean', 'under_prov_mean', 'clip_fraction']:
             if col in valid_grp.columns:
                 col_stats = calc_dist_stats(valid_grp[col])
                 stats_dict[col] = col_stats
+
+                # Calculate pooled timestep metric
+                clean_mask = ~valid_grp[col].isna()
+                if clean_mask.sum() > 0:
+                    c_vals = valid_grp.loc[clean_mask, col].values
+                    c_wts = weights[clean_mask]
+                    if col == 'rmse':
+                        pooled_val = float(np.sqrt(np.sum((c_vals ** 2) * c_wts) / c_wts.sum()))
+                    else:
+                        pooled_val = float(np.sum(c_vals * c_wts) / c_wts.sum())
+                else:
+                    pooled_val = np.nan
+                pooled_dict[col] = pooled_val
+
                 detailed_rows.append({
                     'Configuration': cfg,
                     'Metric': col,
-                    'N': n_machines,
-                    'Mean': round(col_stats['mean'], 6),
-                    'Median': round(col_stats['median'], 6),
-                    'Std': round(col_stats['std'], 6),
-                    '95% CI Lower': round(col_stats['ci_lower'], 6),
-                    '95% CI Upper': round(col_stats['ci_upper'], 6),
+                    'N_Machines': n_machines,
+                    'Total_Timesteps': total_timesteps,
+                    'Macro_Mean': round(col_stats['mean'], 6),
+                    'Macro_Median': round(col_stats['median'], 6),
+                    'Macro_Std': round(col_stats['std'], 6),
+                    'Macro_95CI_Lower': round(col_stats['ci_lower'], 6),
+                    'Macro_95CI_Upper': round(col_stats['ci_upper'], 6),
+                    'Pooled_Timestep_Mean': round(pooled_val, 6) if not np.isnan(pooled_val) else None,
                     'Min': round(col_stats['min'], 6),
                     'Max': round(col_stats['max'], 6)
                 })
 
-        # Format concise master summary row
+        # Format concise master summary row (Macro primary, Pooled secondary)
         sla = stats_dict.get('sla_breach_rate', {})
         ovp = stats_dict.get('over_prov_mean', {})
         und = stats_dict.get('under_prov_mean', {})
@@ -140,10 +160,11 @@ def consolidate_results(results_dir: str, models_dir: str):
         summary_rows.append({
             'Configuration': cfg,
             'Machines': n_machines,
-            'MAE (95% CI)': mae_str,
-            'RMSE (95% CI)': rmse_str,
-            'SLA Breach Rate': f"{sla.get('mean', 0.0):.2%} +/- {sla.get('ci95', 0.0):.2%}",
-            'Overshoot Rate': f"{stats_dict.get('overshoot_rate', {}).get('mean', 0.0):.2%}",
+            'MAE (Macro 95% CI)': mae_str,
+            'RMSE (Macro 95% CI)': rmse_str,
+            'SLA Breach (Macro)': f"{sla.get('mean', 0.0):.2%} +/- {sla.get('ci95', 0.0):.2%}",
+            'SLA Breach (Pooled)': f"{pooled_dict.get('sla_breach_rate', 0.0):.2%}",
+            'Overshoot (Macro)': f"{stats_dict.get('overshoot_rate', {}).get('mean', 0.0):.2%}",
             'Over-Prov Mean': f"{ovp.get('mean', 0.0):.4f} +/- {ovp.get('ci95', 0.0):.4f}",
             'Under-Prov Mean': f"{und.get('mean', 0.0):.4f} +/- {und.get('ci95', 0.0):.4f}",
             'Clip Fraction': f"{stats_dict.get('clip_fraction', {}).get('mean', 0.0):.2%}"
@@ -160,12 +181,12 @@ def consolidate_results(results_dir: str, models_dir: str):
     detailed_df.to_csv(out_detailed_csv, index=False)
 
     print("\n" + "=" * 115)
-    print("                      COMPREHENSIVE BENCHMARK EVALUATION TABLE (WITH 95% CI)")
+    print("           COMPREHENSIVE BENCHMARK EVALUATION TABLE (MACRO MEAN WITH 95% CI & POOLED)")
     print("=" * 115)
     print(summary_df.to_string(index=False))
     print("=" * 115)
     print(f"\nSummary results saved to: {out_csv}")
-    print(f"Detailed per-machine distribution metrics saved to: {out_detailed_csv}")
+    print(f"Detailed distribution & pooled metrics saved to: {out_detailed_csv}")
 
 
 def main():
