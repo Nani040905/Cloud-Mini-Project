@@ -61,7 +61,7 @@ def extract_features_single_machine(df_m: pd.DataFrame) -> pd.DataFrame:
     df['roll_std']  = df['cpu'].shift(1).rolling(6).std()
 
     # Extended multi-resource features (strictly shifted)
-    df['mem_lag1']      = df['mem'].shift(2)
+    df['mem_lag1']      = df['mem'].shift(1)
     df['mem_roll_mean'] = df['mem'].shift(1).rolling(6).mean()
     df['cpu_diff1']     = df['cpu_lag1'] - df['cpu_lag2']
     df['roll_max']      = df['cpu'].shift(1).rolling(6).max()

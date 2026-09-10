@@ -22,9 +22,8 @@ Implements:
      for test targets causally cross into validation observations. Targets strictly respect assigned splits.
    - DataLoader: batch_size = 32, shuffle = False (preserves chronological training stability).
 4. Dual-Tier Feature Ablation:
-   - Base Tier (7 features): CPU utilization, lag1, lag2, rolling mean(6), rolling std(6), hour_sin, hour_cos.
-   - Extended Tier (15 features): Adds memory, assigned memory, page cache, cycles per instruction,
-     memory accesses per instruction, multi-resource ratios, and day-of-week cyclicals.
+   - Base Tier (7 features): ['cpu', 'cpu_lag1', 'cpu_lag2', 'roll_mean', 'roll_std', 'hour_sin', 'hour_cos'].
+   - Extended Tier (15 features): Base + ['mem', 'mem_lag1', 'mem_roll_mean', 'disk', 'cpu_diff1', 'roll_max', 'dow_sin', 'dow_cos'].
 """
 
 import os
