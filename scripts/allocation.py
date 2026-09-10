@@ -132,7 +132,7 @@ def run_allocation(selector_log_path: str = None, output_dir: str = RESULTS_DIR,
     print("=" * 75)
     for cfg, grp in combined_df.groupby('config'):
         print(f"\nConfiguration: {cfg} (beta = {calibrated_betas[cfg]:.2f})")
-        print(f"  SLA Breach Rate     : {grp['sla_breach_rate'].mean():.2%} (Target <= 2.00%)")
+        print(f"  SLA Breach Rate     : {grp['sla_breach_rate'].mean():.2%} (Target <= {SLA_TARGET:.2%})")
         print(f"  Overshoot Rate      : {grp['overshoot_rate'].mean():.2%}")
         print(f"  Over-provision Mean : {grp['over_prov_mean'].mean():.4f}")
         print(f"  Under-provision Mean: {grp['under_prov_mean'].mean():.4f}")

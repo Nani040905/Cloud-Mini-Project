@@ -29,7 +29,7 @@ import pandas as pd
 
 from utils import (
     compute_metrics, SERIES_DIR, SELECTED_MACHINES_PATH,
-    SPLIT_INFO_PATH, RESULTS_DIR
+    SPLIT_INFO_PATH, RESULTS_DIR, SLA_TARGET
 )
 
 
@@ -118,7 +118,7 @@ def evaluate_baselines(series_dir: str, selected_json: str, split_info_path: str
         print(f"\nConfiguration: {cfg} (Valid Machines: {n_valid})")
         print(f"  MAE                 : {grp['mae'].mean():.4f} +/- {grp['mae'].std():.4f}")
         print(f"  RMSE                : {grp['rmse'].mean():.4f} +/- {grp['rmse'].std():.4f}")
-        print(f"  SLA Breach Rate     : {grp['sla_breach_rate'].mean():.2%} (Target <= 2%)")
+        print(f"  SLA Breach Rate     : {grp['sla_breach_rate'].mean():.2%} (Target <= {SLA_TARGET:.1%})")
         print(f"  Overshoot Rate      : {grp['overshoot_rate'].mean():.2%}")
         print(f"  Over-provision Mean : {grp['over_prov_mean'].mean():.4f}")
         print(f"  Under-provision Mean: {grp['under_prov_mean'].mean():.4f}")

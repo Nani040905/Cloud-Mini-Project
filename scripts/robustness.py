@@ -41,6 +41,19 @@ def run_robustness_sweep(selector_log_path: str = UNCERTAINTY_LOG, output_csv: s
     if output_csv is None:
         output_csv = os.path.join(RESULTS_DIR, "robustness_results.csv")
 
+    alloc_csv = os.path.join(RESULTS_DIR, "allocation_results.csv")
+    beta_star = 14.0
+    if os.path.exists(alloc_csv):
+        try:
+            a_df = pd.read_csv(alloc_csv)
+            sub_a = a_df[a_df['config'] == 'Proposed_Adaptive_U']
+            if len(sub_a) > 0 and 'beta_buf' in sub_a.columns:
+                beta_star = float(sub_a['beta_buf'].iloc[0])
+        except Exception:
+            pass
+
+    print(f"Evaluated with Calibrated Adaptive Multiplier: beta = {beta_star:.2f}")
+
     results = []
     # Evaluate each cell in the 4x4 matrix
     for seed in SEEDS:
@@ -65,8 +78,8 @@ def run_robustness_sweep(selector_log_path: str = UNCERTAINTY_LOG, output_csv: s
             breach_fixed = np.mean(y_actual > alloc_fixed + 0.005)
             ovp_fixed = np.mean(np.maximum(0.0, alloc_fixed - y_actual))
 
-            # Adaptive U* buffer (calibrated beta = 1.8)
-            alloc_adaptive = np.clip(y_fused + 1.8 * u_star, 0.0, 1.0)
+            # Adaptive U* buffer (dynamically calibrated beta*)
+            alloc_adaptive = np.clip(y_fused + beta_star * u_star, 0.0, 1.0)
             breach_adaptive = np.mean(y_actual > alloc_adaptive + 0.005)
             ovp_adaptive = np.mean(np.maximum(0.0, alloc_adaptive - y_actual))
 

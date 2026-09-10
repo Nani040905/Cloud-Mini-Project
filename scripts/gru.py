@@ -38,7 +38,7 @@ from torch.utils.data import TensorDataset, DataLoader
 
 from utils import (
     compute_metrics, SEED, SEQ_LEN, PROCESSED_DIR, MODELS_DIR,
-    SELECTED_MACHINES_PATH, SPLIT_INFO_PATH
+    SELECTED_MACHINES_PATH, SPLIT_INFO_PATH, SLA_TARGET
 )
 from features import BASE_FEATURES, EXTENDED_FEATURES, build_gru_sequences
 
@@ -254,7 +254,7 @@ def run_gru_pipeline(tier: str, output_dir: str):
     print("=" * 65)
     print(f"Test MAE                 : {m_df['mae'].mean():.4f} +/- {m_df['mae'].std():.4f}")
     print(f"Test RMSE                : {m_df['rmse'].mean():.4f} +/- {m_df['rmse'].std():.4f}")
-    print(f"SLA Breach Rate          : {m_df['sla_breach_rate'].mean():.2%} (Target <= 2%)")
+    print(f"SLA Breach Rate          : {m_df['sla_breach_rate'].mean():.2%} (Target <= {SLA_TARGET:.1%})")
     print(f"Overshoot Rate           : {m_df['overshoot_rate'].mean():.2%}")
     print(f"Over-provision Mean      : {m_df['over_prov_mean'].mean():.4f}")
     print(f"Under-provision Mean     : {m_df['under_prov_mean'].mean():.4f}")

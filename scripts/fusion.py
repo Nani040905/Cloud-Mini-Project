@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 
 from utils import (
-    compute_metrics, ALPHA_GRID, MODELS_DIR
+    compute_metrics, ALPHA_GRID, MODELS_DIR, SLA_TARGET
 )
 
 
@@ -106,7 +106,7 @@ def run_fusion(hw_preds_path: str, gru_preds_path: str, output_dir: str):
     print("=" * 65)
     print(f"Test MAE                 : {m_df['mae'].mean():.4f} +/- {m_df['mae'].std():.4f}")
     print(f"Test RMSE                : {m_df['rmse'].mean():.4f} +/- {m_df['rmse'].std():.4f}")
-    print(f"SLA Breach Rate          : {m_df['sla_breach_rate'].mean():.2%} (Target <= 2%)")
+    print(f"SLA Breach Rate          : {m_df['sla_breach_rate'].mean():.2%} (Target <= {SLA_TARGET:.1%})")
     print(f"Overshoot Rate           : {m_df['overshoot_rate'].mean():.2%}")
     print(f"Over-provision Mean      : {m_df['over_prov_mean'].mean():.4f}")
     print(f"Under-provision Mean     : {m_df['under_prov_mean'].mean():.4f}")
