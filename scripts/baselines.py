@@ -1,7 +1,7 @@
 """
 scripts/baselines.py
 
-Step 6: Baseline Forecasting and Fixed-Buffer Allocations (B0 and B0b).
+Step 6: Baseline Forecasting and Fixed-Buffer Allocations (B0, B0b, B0c).
 Implements:
 1. B0 (Persistence / Last-Value):
    - Formula: y_hat[t] = y[t-1]
@@ -9,7 +9,9 @@ Implements:
 2. B0b (Seasonal Naive):
    - Formula: y_hat[t] = y[t - m] (default m=288 for 24h seasonality at 5-min intervals).
    - Falls back to available history (m=48 for 4h) if series is shorter.
-3. Fixed Heuristic Allocation:
+3. B0c (Causal Moving Average):
+   - Formula: y_hat[t] = mean(y[t-6 : t-1]) (30-min causal trailing window).
+4. Fixed Heuristic Allocation:
    - Traditional cloud heuristic adds a static relative buffer (e.g. +10%):
      A_raw = y_hat * 1.10
      A_t   = clip(A_raw, 0.0, 1.0)
@@ -42,8 +44,8 @@ def evaluate_baselines(series_dir: str, selected_json: str, split_info_path: str
     with open(split_info_path, 'r') as f:
         split_info = json.load(f)
 
-    b0_results, b0b_results = [], []
-    print(f"Evaluating B0 and B0b across {len(chosen_mids)} machines...")
+    b0_results, b0b_results, b0c_results = [], [], []
+    print(f"Evaluating B0, B0b, and B0c across {len(chosen_mids)} machines...")
 
     for mid in chosen_mids:
         in_path = os.path.join(series_dir, f"{mid}.parquet")
@@ -86,9 +88,22 @@ def evaluate_baselines(series_dir: str, selected_json: str, split_info_path: str
         m_b0b.update({'machine_id': mid, 'config': f'B0b_SeasonalNaive_m{m_period}'})
         b0b_results.append(m_b0b)
 
+        # ----------------------------------------------------------------------
+        # B0c: Causal Moving Average (6-step trailing window from continuous full series)
+        # Formula: y_hat[t] = mean(y[t-6 : t-1])
+        # ----------------------------------------------------------------------
+        pred_b0c_full = full_cpu.shift(1).rolling(6, min_periods=1).mean().values
+        pred_b0c = pred_b0c_full[test_start:test_end]
+        ar_b0c = pred_b0c * 1.10
+        al_b0c = np.clip(ar_b0c, 0.0, 1.0)
+        m_b0c = compute_metrics(y_test, pred_b0c, ar_b0c, al_b0c)
+        m_b0c.update({'machine_id': mid, 'config': 'B0c_MovingAverage_w6'})
+        b0c_results.append(m_b0c)
+
     df_b0 = pd.DataFrame(b0_results)
     df_b0b = pd.DataFrame(b0b_results)
-    combined = pd.concat([df_b0, df_b0b], ignore_index=True)
+    df_b0c = pd.DataFrame(b0c_results)
+    combined = pd.concat([df_b0, df_b0b, df_b0c], ignore_index=True)
 
     os.makedirs(os.path.dirname(output_csv), exist_ok=True)
     combined.to_csv(output_csv, index=False)
