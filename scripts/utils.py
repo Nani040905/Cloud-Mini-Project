@@ -76,7 +76,7 @@ def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, a_raw: np.ndarray, a
     Standardized SLA and Error Metrics for Resource Allocation.
     
     Equations:
-    - SLA Breach Rate: P(y_t > A_t + GRACE_BAND) [Target: <= 2.0%]
+    - SLA Breach Rate: P(y_t > A_t + GRACE_BAND) [Target: <= 1.0% (99% SLA compliance)]
     - Overshoot Rate:  P(y_t > A_t)             [All overshoots, even within grace band]
     - Grace Zone Rate: P(A_t < y_t <= A_t + GRACE_BAND)
     - Over-Provision:  mean(max(0, A_t - y_t))  [Wasted capacity - minimized]

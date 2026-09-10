@@ -12,9 +12,9 @@ Implements:
      Values are clipped strictly to [0.0, 1.0]. Any unclipped excess (A_raw > 1.0) is recorded
      as 'clip_fraction' to monitor capacity saturation risk.
 2. Vectorized Constrained Beta Calibration:
-   - Evaluates candidate beta in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0, 1.5, 2.0] on the validation split.
+   - Evaluates candidate beta in [0.1, 0.2, ..., 20.0] on the validation split.
    - Objective:
-     beta* = min { beta in Candidates : P(y_val > A_val(beta) + 0.005) <= 2.0% }
+     beta* = min { beta in Candidates : P(y_val > A_val(beta) + 0.005) <= 1.0% }  (99% SLA compliance)
    - Evaluated via vectorized broadcasting across all candidates simultaneously (instantaneous runtime).
 3. Benchmark Configurations Evaluated on Test Set:
    - B4a: Static U1 + Calibrated Beta
@@ -38,7 +38,7 @@ from utils import (
 def calibrate_beta(val_df: pd.DataFrame, u_col: str) -> float:
     """
     Vectorized calibration to identify the minimum buffer multiplier beta
-    satisfying the strict <= 2.0% SLA breach budget on the validation split.
+    satisfying the strict <= 1.0% SLA breach budget (99% compliance) on the validation split.
     """
     y_val = val_df['y_true'].values
     pred_val = val_df['fused_pred'].values
@@ -49,7 +49,7 @@ def calibrate_beta(val_df: pd.DataFrame, u_col: str) -> float:
     a_cands = np.clip(pred_val + betas * u_val, 0.0, 1.0)
     breach_rates = np.mean(y_val > (a_cands + GRACE_BAND), axis=1)
 
-    # Find the smallest beta satisfying SLA breach budget <= 2.0%
+    # Find the smallest beta satisfying SLA breach budget <= 1.0%
     qualifying_indices = np.where(breach_rates <= SLA_TARGET)[0]
     if len(qualifying_indices) == 0:
         raise RuntimeError(
