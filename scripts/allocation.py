@@ -78,13 +78,28 @@ def evaluate_allocation_configuration(test_df: pd.DataFrame, u_col: str, beta: f
     return pd.DataFrame(per_machine)
 
 
-def run_allocation(selector_log_path: str, output_dir: str):
-    """Runs constrained calibration and evaluates B4a-c and the Proposed Adaptive U* configuration."""
-    print("Loading selector log and uncertainty signals...")
-    df = pd.read_csv(selector_log_path)
+def run_allocation(selector_log_path: str = None, output_dir: str = RESULTS_DIR,
+                   val_selector_path: str = None, test_selector_path: str = None):
+    """
+    Runs constrained calibration on explicit validation artifact and evaluates
+    B4a-c and Proposed Adaptive U* configurations on the test split.
+    """
+    if val_selector_path and os.path.exists(val_selector_path) and test_selector_path and os.path.exists(test_selector_path):
+        print(f"Loading explicit validation selector artifact from: {val_selector_path}")
+        print(f"Loading explicit test selector artifact from: {test_selector_path}")
+        val_df = pd.read_csv(val_selector_path)
+        test_df = pd.read_csv(test_selector_path)
+    else:
+        log_path = selector_log_path or os.path.join(UNCERTAINTY_DIR, "selector_log.csv")
+        print(f"Loading selector log and uncertainty signals from: {log_path}")
+        df = pd.read_csv(log_path)
+        val_df = df[df['split'] == 'val'].copy()
+        test_df = df[df['split'] == 'test'].copy()
 
-    val_df = df[df['split'] == 'val'].copy()
-    test_df = df[df['split'] == 'test'].copy()
+    assert 'U_star' in val_df.columns, "Validation artifact must contain 'U_star' for adaptive beta calibration"
+    assert 'U_star' in test_df.columns, "Test artifact must contain 'U_star' for evaluation"
+    print(f"[Causal Protocol] Calibration set: {len(val_df)} timesteps across {val_df['machine_id'].nunique()} machines")
+    print(f"[Causal Protocol] Test evaluation set: {len(test_df)} timesteps across {test_df['machine_id'].nunique()} machines")
 
     configs = [
         ('U1', 'B4a_Static_U1'),
@@ -99,7 +114,7 @@ def run_allocation(selector_log_path: str, output_dir: str):
     for u_col, cfg_name in configs:
         beta = calibrate_beta(val_df, u_col)
         calibrated_betas[cfg_name] = beta
-        print(f"Calibrated beta for {cfg_name:20s}: beta = {beta:.2f}")
+        print(f"Calibrated beta for {cfg_name:20s}: beta = {beta:.2f} (from validation U_star/uncertainty)")
 
         res_df = evaluate_allocation_configuration(test_df, u_col, beta, cfg_name)
         all_results.append(res_df)
@@ -128,10 +143,17 @@ def run_allocation(selector_log_path: str, output_dir: str):
 def main():
     parser = argparse.ArgumentParser(description="Constrained buffer allocation and evaluation")
     parser.add_argument("--selector_log", type=str, default=os.path.join(UNCERTAINTY_DIR, "selector_log.csv"))
+    parser.add_argument("--val_selector", type=str, default=os.path.join(UNCERTAINTY_DIR, "selector_validation.csv"))
+    parser.add_argument("--test_selector", type=str, default=os.path.join(UNCERTAINTY_DIR, "selector_test.csv"))
     parser.add_argument("--output_dir", type=str, default=RESULTS_DIR)
     args = parser.parse_args()
 
-    run_allocation(args.selector_log, args.output_dir)
+    run_allocation(
+        selector_log_path=args.selector_log,
+        output_dir=args.output_dir,
+        val_selector_path=args.val_selector,
+        test_selector_path=args.test_selector
+    )
 
 
 if __name__ == "__main__":

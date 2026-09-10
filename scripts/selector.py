@@ -140,8 +140,18 @@ def run_reliability_selector(uncertainty_csv: str, output_dir: str):
     selector_df.to_csv(out_path, index=False)
     print(f"Saved selector arbitration log to: {out_path}")
 
+    # Explicit validation artifact used for beta calibration and test evaluation
+    selector_val = selector_df[selector_df["split"] == "val"].copy()
+    selector_test = selector_df[selector_df["split"] == "test"].copy()
+    val_out_path = os.path.join(output_dir, "selector_validation.csv")
+    test_out_path = os.path.join(output_dir, "selector_test.csv")
+    selector_val.to_csv(val_out_path, index=False)
+    selector_test.to_csv(test_out_path, index=False)
+    print(f"Saved explicit validation selector artifact to: {val_out_path}")
+    print(f"Saved explicit test selector artifact to: {test_out_path}")
+
     # Display Macro-Averages on Test Split
-    test_sub = selector_df[selector_df['split'] == 'test'].copy()
+    test_sub = selector_test
     print("\n" + "=" * 65)
     print("           ADAPTIVE SELECTOR SUMMARY (TEST SPLIT)")
     print("=" * 65)
