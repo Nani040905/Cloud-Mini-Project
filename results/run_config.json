@@ -1,6 +1,6 @@
 {
   "dataset": "Google Cluster Trace v2 (2011)",
-  "data_parts_processed_count": 6,
+  "data_parts_processed_count": 500,
   "machine_count": 100,
   "random_seed": 42,
   "train_val_test_split": [
@@ -92,6 +92,6 @@
   ],
   "sla_target": 0.01,
   "grace_band": 0.005,
-  "git_commit": "5b75367",
-  "run_timestamp": "2026-09-10T09:17:47.380296Z"
+  "git_commit": "bb3b609",
+  "run_timestamp": "2026-09-10T16:51:46.304729Z"
 }

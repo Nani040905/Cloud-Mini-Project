@@ -134,7 +134,7 @@ def run_holt_winters(series_dir: str, selected_json: str, split_info_path: str,
         split_info = json.load(f)
 
     os.makedirs(output_dir, exist_ok=True)
-    all_metrics, val_records, test_records = [], [], []
+    all_metrics, train_records, val_records, test_records = [], [], [], []
 
     print(f"Fitting Holt-Winters models across {len(chosen_mids)} machines...")
 
@@ -156,6 +156,13 @@ def run_holt_winters(series_dir: str, selected_json: str, split_info_path: str,
         all_metrics.append(m)
 
         # Store aligned predictions for downstream fusion & uncertainty
+        tr_s, tr_e = splits['train_range']
+        last_train_p = res.get('last_train_pred', float(df['cpu'].iloc[tr_e - 1]))
+        train_records.append({
+            'machine_id': mid, 'split': 'train', 'bin_idx': tr_e - 1,
+            'y_true': df['cpu'].iloc[tr_e - 1], 'hw_pred': last_train_p
+        })
+
         va_s, va_e = splits['val_range']
         for idx, p in enumerate(res['val_preds']):
             val_records.append({
@@ -175,7 +182,7 @@ def run_holt_winters(series_dir: str, selected_json: str, split_info_path: str,
     m_df['model_type'] = m_df['best_m'].apply(
         lambda m: 'seasonal_hw' if m > 0 else ('non_seasonal_holt' if m == 0 else 'mean_fallback')
     )
-    p_df = pd.concat([pd.DataFrame(val_records), pd.DataFrame(test_records)], ignore_index=True)
+    p_df = pd.concat([pd.DataFrame(train_records), pd.DataFrame(val_records), pd.DataFrame(test_records)], ignore_index=True)
 
     metrics_path = os.path.join(output_dir, "hw_metrics.csv")
     preds_path = os.path.join(output_dir, "hw_predictions.csv")

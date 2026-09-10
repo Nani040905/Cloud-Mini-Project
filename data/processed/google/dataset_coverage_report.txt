@@ -1,18 +1,18 @@
 ====================================================
           DATASET COVERAGE REPORT
 ====================================================
-Task records total         : 353,380
-Unique machines in trace   : 299
-Temporal bins (5-min)      : 101
+Task records total         : 28,932,278
+Unique machines in trace   : 300
+Temporal bins (5-min)      : 8,352
 Earliest timestamp         : 600.0 s
-Latest timestamp           : 30900.0 s
-Coverage duration          : 0 days, 8 hours, 25 minutes
+Latest timestamp           : 2506200.0 s
+Coverage duration          : 29 days, 0 hours, 0 minutes
 ----------------------------------------------------
 CPU stats (across active machines):
-  Mean                     : 0.1807
-  Std                      : 0.1067
-  Min                      : 0.0008
+  Mean                     : 0.2294
+  Std                      : 0.1228
+  Min                      : 0.0000
   Max                      : 1.0000
-NaN fraction               : 0.35%
+NaN fraction               : 1.20%
 Zero/idle fraction         : 0.00%
 ====================================================

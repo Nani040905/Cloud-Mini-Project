@@ -41,6 +41,11 @@ def extract_features_single_machine(df_m: pd.DataFrame) -> pd.DataFrame:
     Returns: DataFrame containing both base and extended feature sets.
     """
     df = df_m.copy()
+    # Causally forward-fill intermittent telemetry dropouts (e.g. sparse disk measurements)
+    for col in ['cpu', 'mem', 'disk']:
+        if col in df.columns:
+            df[col] = df[col].ffill().fillna(0.0)
+
     if 'datetime' not in df.columns:
         # 5-minute bins from trace start
         df['datetime'] = TRACE_START + pd.to_timedelta(df['bin_idx'] * 5, unit='min')

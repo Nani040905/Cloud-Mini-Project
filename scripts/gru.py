@@ -41,7 +41,7 @@ from utils import (
 )
 from features import BASE_FEATURES, EXTENDED_FEATURES, build_gru_sequences
 
-BATCH_SIZE = 32
+BATCH_SIZE = 256
 HIDDEN_SIZE = 32
 DROPOUT_RATE = 0.2
 LEARNING_RATE = 1e-3
@@ -86,6 +86,8 @@ def prepare_global_datasets(features_dir: str, selected_json: str, split_info_pa
     train_X_l, train_y_l = [], []
     val_X_l, val_y_l     = [], []
     test_X_l, test_y_l   = [], []
+    train_meta_l = []
+    train_last_X_l = []
     val_meta_l, test_meta_l = [], []
 
     for mid in chosen_mids:
@@ -101,13 +103,15 @@ def prepare_global_datasets(features_dir: str, selected_json: str, split_info_pa
         te_s, te_e = splits['test_range']
 
         # Construct sequences per machine (lookback window crosses boundaries causally)
-        X_tr, y_tr, _      = build_gru_sequences(df, feature_cols, 'cpu', tr_s, tr_e, seq_len)
+        X_tr, y_tr, idx_tr = build_gru_sequences(df, feature_cols, 'cpu', tr_s, tr_e, seq_len)
         X_va, y_va, idx_va = build_gru_sequences(df, feature_cols, 'cpu', va_s, va_e, seq_len)
         X_te, y_te, idx_te = build_gru_sequences(df, feature_cols, 'cpu', te_s, te_e, seq_len)
 
         if len(X_tr) > 0:
             train_X_l.append(X_tr)
             train_y_l.append(y_tr)
+            train_meta_l.append({'machine_id': mid, 'split': 'train', 'bin_idx': int(idx_tr[-1]), 'y_true': float(y_tr[-1])})
+            train_last_X_l.append(X_tr[-1])
         if len(X_va) > 0:
             val_X_l.append(X_va)
             val_y_l.append(y_va)
@@ -125,9 +129,11 @@ def prepare_global_datasets(features_dir: str, selected_json: str, split_info_pa
     val_y   = np.concatenate(val_y_l, axis=0) if val_y_l else np.empty((0,))
     test_X  = np.concatenate(test_X_l, axis=0) if test_X_l else np.empty((0, seq_len, len(feature_cols)))
     test_y  = np.concatenate(test_y_l, axis=0) if test_y_l else np.empty((0,))
+    train_last_X = np.stack(train_last_X_l) if train_last_X_l else np.empty((0, seq_len, len(feature_cols)))
 
     return {
         'train': (train_X, train_y), 'val': (val_X, val_y), 'test': (test_X, test_y),
+        'train_meta': train_meta_l, 'train_last_X': train_last_X,
         'val_meta': val_meta_l, 'test_meta': test_meta_l
     }
 
@@ -177,7 +183,7 @@ def train_gru(model: nn.Module, train_loader: DataLoader, val_loader: DataLoader
     return model
 
 
-def run_gru_pipeline(tier: str, output_dir: str):
+def run_gru_pipeline(tier: str, output_dir: str, batch_size: int = BATCH_SIZE):
     """Executes dataset preparation, model training, and B1 evaluation for a given feature tier."""
     set_seed(SEED)
     feature_cols = BASE_FEATURES if tier == 'base' else EXTENDED_FEATURES
@@ -198,11 +204,11 @@ def run_gru_pipeline(tier: str, output_dir: str):
 
     use_cuda = torch.cuda.is_available()
     tr_loader = DataLoader(TensorDataset(torch.tensor(tr_X, dtype=torch.float32), torch.tensor(tr_y, dtype=torch.float32)),
-                           batch_size=BATCH_SIZE, shuffle=False, pin_memory=use_cuda)
+                           batch_size=batch_size, shuffle=False, pin_memory=use_cuda)
     va_loader = DataLoader(TensorDataset(torch.tensor(va_X, dtype=torch.float32), torch.tensor(va_y, dtype=torch.float32)),
-                           batch_size=BATCH_SIZE, shuffle=False, pin_memory=use_cuda)
+                           batch_size=batch_size, shuffle=False, pin_memory=use_cuda)
     te_loader = DataLoader(TensorDataset(torch.tensor(te_X, dtype=torch.float32), torch.tensor(te_y, dtype=torch.float32)),
-                           batch_size=BATCH_SIZE, shuffle=False, pin_memory=use_cuda)
+                           batch_size=batch_size, shuffle=False, pin_memory=use_cuda)
 
     model = GRUPredictor(input_size=len(feature_cols)).to(DEVICE)
     model = train_gru(model, tr_loader, va_loader)
@@ -211,9 +217,15 @@ def run_gru_pipeline(tier: str, output_dir: str):
     os.makedirs(output_dir, exist_ok=True)
     torch.save(model.state_dict(), os.path.join(output_dir, f"gru_{tier}.pt"))
 
-    # Generate inference predictions on validation and test splits
+    # Generate inference predictions on train boundary, validation, and test splits
     model.eval()
     with torch.no_grad():
+        train_preds = []
+        if len(data['train_last_X']) > 0:
+            tr_t = torch.tensor(data['train_last_X'], dtype=torch.float32).to(DEVICE)
+            train_preds = model(tr_t).cpu().numpy()
+        train_preds = np.array(train_preds) if len(train_preds) > 0 else np.empty((0,))
+
         val_preds = []
         for bx, _ in va_loader:
             val_preds.append(model(bx.to(DEVICE)).cpu().numpy())
@@ -225,13 +237,16 @@ def run_gru_pipeline(tier: str, output_dir: str):
         test_preds = np.concatenate(test_preds) if test_preds else np.empty((0,))
 
     # Format predictions table
+    train_df = pd.DataFrame(data['train_meta'])
+    train_df['gru_pred'] = train_preds
+
     val_df = pd.DataFrame(data['val_meta'])
     val_df['gru_pred'] = val_preds
 
     test_df = pd.DataFrame(data['test_meta'])
     test_df['gru_pred'] = test_preds
 
-    preds_combined = pd.concat([val_df, test_df], ignore_index=True)
+    preds_combined = pd.concat([train_df, val_df, test_df], ignore_index=True)
     preds_csv = os.path.join(output_dir, f"gru_{tier}_predictions.csv")
     preds_combined.to_csv(preds_csv, index=False)
 

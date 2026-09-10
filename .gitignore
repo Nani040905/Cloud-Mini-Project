@@ -20,5 +20,6 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-# Raw Data Downloads
+# Raw Data Downloads & Intermediate Partitions
 data/raw/
+data/processed/google/filtered_parts/
