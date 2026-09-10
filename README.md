@@ -264,7 +264,7 @@ python run_pipeline.py --profile
 > 
 > Because no single uncertainty metric dominates under all cluster conditions, we introduce an Adaptive Reliability Selector that tracks the rolling Spearman rank correlation between each signal and prediction error. It dynamically routes the winning uncertainty metric into a constrained allocation equation: $A_t = \min(1.0, \hat{y}_t + \beta U^*_t)$. 
 > 
-> We calibrate $\beta$ on the validation split to guarantee a strict 99% SLA compliance target ($\text{breach budget} \le 1.0\%$). On test evaluations across 100 machines, this eliminates catastrophic failures while keeping over-provisioning waste strictly bounded."*
+> We calibrate $\beta$ on the validation split to **target** an SLA breach rate of $\le 1.0\%$. On held-out test evaluations across 100 machines, the proposed method achieves an empirical breach rate well below this target, substantially reducing violation frequency while keeping over-provisioning waste strictly bounded."*
 
 ### Slide-by-Slide Defense Structure
 
@@ -342,11 +342,14 @@ The generated publication-quality figures are saved in `figures/`:
 3. `figures/selector_choices.png`: Distribution of winning signals selected across cluster machines.
 4. `figures/allocation_vs_actual.png`: Dynamic allocation curve adapting above workload with grace band.
 
-### Multi-Scale Robustness Validation (16-Run Sweep)
-To verify policy resilience across random subsampling and cluster scale, we evaluated a focused 16-run matrix (4 seeds $\times$ 4 machine counts: 50, 100, 200, 290 machines) in [`scripts/robustness.py`](file:///E:/Cloud/project/scripts/robustness.py):
+### Machine-Subset Sensitivity Analysis (16-Run Subsample Matrix)
+To verify metric stability across machine subsets and cluster scales, we evaluated a 16-run subsample matrix (4 subsample seeds × 4 machine counts: 50, 100, 200, 290 machines) in [`scripts/robustness.py`](file:///E:/Cloud/project/scripts/robustness.py).
+
+> **Note**: This reuses the same trained GRU/HW models and calibrated β* from the main pipeline run. Only the evaluated machine subset changes across runs. This is a **machine-subset sensitivity analysis**, not an independent retraining experiment.
+
 - **Fixed 10% Buffer Mean SLA Breach**: **$12.11\%$**
-- **Proposed Adaptive $U^*$ Mean SLA Breach**: **$0.38\%$** (strictly achieving 99% SLA compliance across all seeds and cluster sizes)
-- **Average SLA Breach Reduction**: **$96.81\%$** across all seeds and cluster sizes.
+- **Proposed Adaptive $U^*$ Mean SLA Breach**: **$0.38\%$** (empirical result across all subsample seeds and cluster sizes)
+- **Average SLA Breach Reduction**: **$96.81\%$** across all subsample seeds and cluster sizes.
 
 ### Computational Efficiency & Profiling
 Evaluated with PyTorch on single-sample inference latency (1,000 repetitions) and memory footprints:
