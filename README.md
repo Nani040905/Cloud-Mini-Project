@@ -59,7 +59,7 @@ This framework introduces **dynamic uncertainty quantification** into the resour
 
 ## 2. Why Static Cloud Heuristics Fail
 
-To demonstrate why static heuristics fail, we evaluated 100 randomly sampled production machines from the **Google Cluster Trace v2 (2011)** across 67 five-minute time bins (70% train / 15% validation / 15% test).
+To demonstrate why static heuristics fail, we evaluated 100 deterministically sampled production machines from the **Google Cluster Trace v2 (2011)** across continuous five-minute time bins (70% train / 15% validation / 15% test).
 
 | Policy | Forecast Method | Buffer Multiplier | SLA Breach Rate | Over-Provisioning Mean |
 | :--- | :--- | :--- | :---: | :---: |
@@ -76,7 +76,7 @@ To demonstrate why static heuristics fail, we evaluated 100 randomly sampled pro
 ## 3. System Architecture & Theoretical Formulation
 
 ```
-                     [ Google Cluster Trace (4 Parquet Parts) ]
+                 [ Google Cluster Trace v2 (2011) Streamed Task Usage ]
                                          │
                                          ▼
                          [ Interval-Weighted Aggregation ]
@@ -109,7 +109,7 @@ To demonstrate why static heuristics fail, we evaluated 100 randomly sampled pro
 ```
 
 ### 3.1 Google Cluster Data & Temporal Preprocessing
-- **Raw Data**: Google Cluster Trace v2 (2011) task usage trace covering 292,498 task records across 299 active machines (84 continuous 5-minute bins, 7.0 hours span).
+- **Raw Data**: Google Cluster Trace v2 (2011) task usage trace covering candidate machines across continuous 5-minute bins.
 - **Aggregation**: Interval-weighted overlapping time aggregation over 5-minute bins ($\Delta t = 300\text{ s}$) verified by formal 8-case unit test suite (`scripts/test_aggregate.py`).
 - **Missing vs Idle**: Bins with zero recorded tasks are explicitly separated into true idle utilization ($0.0$) versus unobserved gaps ($\text{NaN}$).
 - **Strict Chronological Split**: 70% Train, 15% Validation, 15% Test. Temporal isolation is enforced per machine with zero shuffling across time boundaries.
@@ -117,9 +117,12 @@ To demonstrate why static heuristics fail, we evaluated 100 randomly sampled pro
 ### 3.2 Dual-Tier Feature Engineering & Causality Guarantees
 All features strictly preserve causal temporal ordering:
 - **Base Tier (7 features)**:
-  $$\mathbf{x}_t^{\text{base}} = \left[ y_{t-1}, y_{t-2}, \mu_{t-1}^{(6)}, \sigma_{t-1}^{(6)}, \sin\left(\frac{2\pi h}{24}\right), \cos\left(\frac{2\pi h}{24}\right), y_t \right]$$
-- **Extended Tier (15 features)**: Adds memory utilization, assigned memory capacity, unmapped page cache, cycles per instruction (CPI), memory accesses per instruction (MAI), memory/CPU ratios, and day-of-week cyclicals.
-- **Causality Rule**: All autoregressive inputs are generated via `.shift(1)` or `.shift(2)`. The target $y_t$ is strictly masked from the feature input vector.
+  $$\mathbf{x}_t^{\text{base}} = \left[ y_t, y_{t-1}, y_{t-2}, \mu_{t-1}^{(6)}, \sigma_{t-1}^{(6)}, \sin\left(\frac{2\pi h}{24}\right), \cos\left(\frac{2\pi h}{24}\right) \right]$$
+  Includes current CPU observation $y_t$ (masked during sequence generation to avoid lookahead), autoregressive lags ($y_{t-1}, y_{t-2}$), 30-minute rolling mean ($\mu_{t-1}^{(6)}$), rolling standard deviation ($\sigma_{t-1}^{(6)}$), and diurnal cyclical encodings ($\sin, \cos$).
+- **Extended Tier (15 features)**: Base 7 features + 8 multi-resource additions:
+  $$\mathbf{x}_t^{\text{ext}} = \left[ \mathbf{x}_t^{\text{base}}, \text{mem}_t, \text{mem}_{t-2}, \mu_{\text{mem}, t-1}^{(6)}, \text{disk}_t, (y_{t-1} - y_{t-2}), \max_{t-6:t-1}(y), \sin\left(\frac{2\pi d}{7}\right), \cos\left(\frac{2\pi d}{7}\right) \right]$$
+  Directly incorporates canonical memory utilization (`mem`), lagged memory (`mem_lag1`), rolling memory demand (`mem_roll_mean`), disk I/O time (`disk`), CPU momentum first difference (`cpu_diff1`), rolling peak CPU demand (`roll_max`), and weekly cyclic encodings (`dow_sin`, `dow_cos`).
+- **Causality Rule**: All autoregressive and rolling inputs are generated via `.shift(1)` or `.shift(2)`. The target $y_t$ is strictly masked from the recurrent feature input sequence.
 
 ### 3.3 Hybrid Forecaster: Holt-Winters + Global GRU
 1. **Holt-Winters Triple Exponential Smoothing**:
@@ -330,7 +333,7 @@ Evaluated on **100 production machines** from the Google Cluster Trace across 67
 Comparing the Global GRU across 7 vs 15 features demonstrates the value of multi-resource telemetry:
 - **Base Tier (7 Features)**: Test MAE = $0.0401 \pm 0.0170$, RMSE = $0.0477 \pm 0.0216$.
 - **Extended Tier (15 Features)**: Test MAE = **$0.0375 \pm 0.0184$**, RMSE = **$0.0454 \pm 0.0227$**.
-- **Takeaway**: Adding memory utilization, page cache, CPI, and MAI reduces test forecasting error across all 100 cluster machines, proving that multi-resource cross-coupling provides predictive signals for CPU demand.
+- **Takeaway**: Adding memory dynamics, disk I/O, CPU momentum, and rolling peak metrics reduces test forecasting error across all 100 cluster machines, proving that multi-resource cross-coupling provides predictive signals for CPU demand without inventing unrecorded trace metrics.
 
 ### Visual Results Gallery
 The generated publication-quality figures are saved in `figures/`:
