@@ -120,7 +120,7 @@ All features strictly preserve causal temporal ordering:
   $$\mathbf{x}_t^{\text{base}} = \left[ y_t, y_{t-1}, y_{t-2}, \mu_{t-1}^{(6)}, \sigma_{t-1}^{(6)}, \sin\left(\frac{2\pi h}{24}\right), \cos\left(\frac{2\pi h}{24}\right) \right]$$
   Includes current CPU observation $y_t$ (masked during sequence generation to avoid lookahead), autoregressive lags ($y_{t-1}, y_{t-2}$), 30-minute rolling mean ($\mu_{t-1}^{(6)}$), rolling standard deviation ($\sigma_{t-1}^{(6)}$), and diurnal cyclical encodings ($\sin, \cos$).
 - **Extended Tier (15 features)**: Base 7 features + 8 multi-resource additions:
-  $$\mathbf{x}_t^{\text{ext}} = \left[ \mathbf{x}_t^{\text{base}}, \text{mem}_t, \text{mem}_{t-2}, \mu_{\text{mem}, t-1}^{(6)}, \text{disk}_t, (y_{t-1} - y_{t-2}), \max_{t-6:t-1}(y), \sin\left(\frac{2\pi d}{7}\right), \cos\left(\frac{2\pi d}{7}\right) \right]$$
+  $$\mathbf{x}_t^{\text{ext}} = \left[ \mathbf{x}_t^{\text{base}}, \text{mem}_t, \text{mem}_{t-1}, \mu_{\text{mem}, t-1}^{(6)}, \text{disk}_t, (y_{t-1} - y_{t-2}), \max_{t-6:t-1}(y), \sin\left(\frac{2\pi d}{7}\right), \cos\left(\frac{2\pi d}{7}\right) \right]$$
   Directly incorporates canonical memory utilization (`mem`), lagged memory (`mem_lag1`), rolling memory demand (`mem_roll_mean`), disk I/O time (`disk`), CPU momentum first difference (`cpu_diff1`), rolling peak CPU demand (`roll_max`), and weekly cyclic encodings (`dow_sin`, `dow_cos`).
 - **Causality Rule**: All autoregressive and rolling inputs are generated via `.shift(1)` or `.shift(2)`. The target $y_t$ is strictly masked from the recurrent feature input sequence.
 

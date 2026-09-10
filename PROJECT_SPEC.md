@@ -68,8 +68,8 @@ ALL temporal operations are performed independently within each machine:
 
 - **Tier 2: Extended Model (Inspected & Data-Grounded Features)**:
   Verified against actual trace columns `['start_time', 'end_time', 'machine_id', 'cpu_rate', 'canonical_memory_usage', 'disk_io_time']`:
-  8. `mem`: canonical_memory_usage(t-1)
-  9. `mem_lag1`: canonical_memory_usage(t-2)
+  8. `mem`: canonical_memory_usage(t)
+  9. `mem_lag1`: canonical_memory_usage(t-1)
   10. `mem_roll_mean`: mean(canonical_memory_usage, t-6 to t-1)
   11. `disk`: disk_io_time(t-1)
   12. `cpu_diff1`: cpu_lag1 - cpu_lag2 (workload rate of change / momentum)
