@@ -1,12 +1,21 @@
 """
 scripts/robustness.py
 
-Priority 8: Multi-Dimensional Robustness Validation Matrix.
-Executes focused 16-run sweep:
-  - 4 Random Seeds: [42, 123, 456, 789]
-  - 4 Machine Counts: [50, 100, 200, 290]
-Validates that Proposed Adaptive U* buffer consistently outperforms
-fixed-buffer baselines across random subsampling and cluster scale.
+Machine-Subset Sensitivity Analysis (16-run parameter matrix).
+
+IMPORTANT: This is NOT a full retraining robustness experiment.
+All 16 runs reuse the same pre-trained GRU/HW models and the same
+trained beta* from the main pipeline run. Only the machine subset
+and the subsampling random seed change in each run.
+
+This measures how sensitive the reported breach/overprov metrics are
+to which subset of machines is evaluated (machine-subset sensitivity),
+**not** to different training seeds or different model initializations.
+True independent-seed retraining is planned for Phase 2.
+
+Matrix:
+  - 4 Subsample Seeds: [42, 123, 456, 789]
+  - 4 Machine Counts:  [50, 100, 200, 290]
 Outputs: results/robustness_results.csv
 """
 
@@ -29,7 +38,8 @@ def run_robustness_sweep(selector_log_path: str = UNCERTAINTY_LOG, output_csv: s
         raise FileNotFoundError(f"Selector log not found: {selector_log_path}. Run pipeline first.")
 
     print("=" * 80)
-    print("      ROBUSTNESS VALIDATION SWEEP (16-RUN PARAMETER MATRIX)")
+    print("  MACHINE-SUBSET SENSITIVITY ANALYSIS (16-RUN SUBSAMPLE MATRIX)")
+    print("  NOTE: Reuses trained models/beta; only machine subset varies.")
     print("=" * 80)
     df = pd.read_csv(selector_log_path)
     test_df = df[df['split'] == 'test'].copy()
@@ -86,7 +96,7 @@ def run_robustness_sweep(selector_log_path: str = UNCERTAINTY_LOG, output_csv: s
             sla_reduction = (breach_fixed - breach_adaptive) / max(1e-6, breach_fixed)
 
             results.append({
-                'Seed': seed,
+                'Subsample Seed': seed,      # NOT a training seed; selects machine subset only
                 'Machine Count': eff_count,
                 'Fixed 10% Breach': round(float(breach_fixed), 4),
                 'Adaptive U* Breach': round(float(breach_adaptive), 4),
@@ -100,7 +110,7 @@ def run_robustness_sweep(selector_log_path: str = UNCERTAINTY_LOG, output_csv: s
     res_df.to_csv(output_csv, index=False)
 
     print("\n" + "=" * 85)
-    print("                    ROBUSTNESS SWEEP RESULTS TABLE")
+    print("            MACHINE-SUBSET SENSITIVITY ANALYSIS — RESULTS TABLE")
     print("=" * 85)
     print(res_df.to_string(index=False))
     print("=" * 85)
