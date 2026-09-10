@@ -1,0 +1,97 @@
+{
+  "dataset": "Google Cluster Trace v2 (2011)",
+  "data_parts_processed_count": 6,
+  "machine_count": 100,
+  "random_seed": 42,
+  "train_val_test_split": [
+    0.7,
+    0.15,
+    0.15
+  ],
+  "features_base": [
+    "cpu",
+    "cpu_lag1",
+    "cpu_lag2",
+    "roll_mean",
+    "roll_std",
+    "hour_sin",
+    "hour_cos"
+  ],
+  "features_extended": [
+    "cpu",
+    "cpu_lag1",
+    "cpu_lag2",
+    "roll_mean",
+    "roll_std",
+    "hour_sin",
+    "hour_cos",
+    "mem",
+    "mem_lag1",
+    "mem_roll_mean",
+    "disk",
+    "cpu_diff1",
+    "roll_max",
+    "dow_sin",
+    "dow_cos"
+  ],
+  "gru_config": {
+    "hidden": 32,
+    "layers": 1,
+    "dropout": 0.2,
+    "output": "sigmoid",
+    "seq_len": 12
+  },
+  "hw_seasonality_candidates": [
+    48,
+    144,
+    288
+  ],
+  "fusion_alpha_candidates": [
+    0.0,
+    0.1,
+    0.2,
+    0.3,
+    0.4,
+    0.5,
+    0.6,
+    0.7,
+    0.8,
+    0.9,
+    1.0
+  ],
+  "selector_N_candidates": [
+    20,
+    30,
+    50,
+    75,
+    100
+  ],
+  "beta_candidates": [
+    0.1,
+    0.2,
+    0.3,
+    0.4,
+    0.5,
+    0.6,
+    0.8,
+    1.0,
+    1.5,
+    2.0,
+    2.5,
+    3.0,
+    4.0,
+    5.0,
+    6.0,
+    8.0,
+    10.0,
+    12.0,
+    14.0,
+    16.0,
+    18.0,
+    20.0
+  ],
+  "sla_target": 0.01,
+  "grace_band": 0.005,
+  "git_commit": "5b75367",
+  "run_timestamp": "2026-09-10T09:17:47.380296Z"
+}

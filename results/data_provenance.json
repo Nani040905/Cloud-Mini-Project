@@ -1,0 +1,9 @@
+{
+  "data_parts_processed_count": 6,
+  "selected_machine_count": 100,
+  "selected_machine_ids_hash": "bfcb448ce9f4f3ac",
+  "coverage_report_exists": true,
+  "run_config_git_commit": "5b75367",
+  "run_timestamp": "2026-09-10T09:17:47.381298Z",
+  "note": "See data/processed/google/dataset_coverage_report.txt for full temporal coverage, NaN fraction, and machine eligibility statistics."
+}

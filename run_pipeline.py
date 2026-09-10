@@ -173,6 +173,8 @@ def save_run_provenance():
     required for academic reproducibility (Fix 17).
     """
     import pandas as pd
+    from features import BASE_FEATURES, EXTENDED_FEATURES
+    from utils import CANDIDATE_BETAS, N_WINDOW_GRID, SLA_TARGET, GRACE_BAND
 
     results_dir = os.path.join(PROJECT_ROOT, "results")
     os.makedirs(results_dir, exist_ok=True)
@@ -185,33 +187,49 @@ def save_run_provenance():
     except Exception:
         git_hash = "unknown"
 
-    # --- Build run_config.json ---
+    # --- Dynamically inspect actual machines used ---
+    selected_machines_path = os.path.join(PROJECT_ROOT, "data", "selected_machines.json")
+    machine_count = 0
+    machine_ids_hash = "unknown"
+    if os.path.exists(selected_machines_path):
+        try:
+            with open(selected_machines_path, "r") as f:
+                raw_m = json.load(f)
+            ids = sorted(raw_m) if isinstance(raw_m, list) else sorted(raw_m.keys())
+            machine_count = len(ids)
+            machine_ids_hash = hashlib.sha256(
+                "|".join(str(i) for i in ids).encode()
+            ).hexdigest()[:16]
+        except Exception:
+            pass
+
+    # --- Dynamically inspect processed parts count ---
+    filtered_dir = os.path.join(PROJECT_ROOT, "data", "processed", "google", "filtered_parts")
+    if os.path.exists(filtered_dir):
+        part_files = [f for f in os.listdir(filtered_dir) if f.endswith(".parquet") or f.endswith(".csv")]
+        parts_processed_count = len(part_files)
+    else:
+        parts_processed_count = 0
+
+    # --- Build run_config.json from actual code definitions ---
     run_config = {
         "dataset": "Google Cluster Trace v2 (2011)",
-        "data_parts_used": "configured in scripts/download.py",
-        "machine_count": 100,
+        "data_parts_processed_count": parts_processed_count,
+        "machine_count": machine_count,
         "random_seed": 42,
         "train_val_test_split": [0.70, 0.15, 0.15],
-        "features_base": [
-            "cpu", "cpu_lag1", "cpu_lag2",
-            "roll_mean", "roll_std", "hour_sin", "hour_cos"
-        ],
-        "features_extended": [
-            "cpu", "cpu_lag1", "cpu_lag2",
-            "roll_mean", "roll_std", "hour_sin", "hour_cos",
-            "mem_mean", "cpu_lag3", "roll_min", "roll_max",
-            "dow_sin", "dow_cos", "task_density", "cpu_delta"
-        ],
+        "features_base": BASE_FEATURES,
+        "features_extended": EXTENDED_FEATURES,
         "gru_config": {
             "hidden": 32, "layers": 1, "dropout": 0.2,
             "output": "sigmoid", "seq_len": 12
         },
         "hw_seasonality_candidates": [48, 144, 288],
         "fusion_alpha_candidates": [round(x * 0.1, 1) for x in range(11)],
-        "selector_N_candidates": [20, 30, 50, 75, 100],
-        "beta_candidates": [0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 14.0, 20.0],
-        "sla_target": 0.01,           # ≤1.0% breach budget (99% SLA compliance)
-        "grace_band": 0.005,
+        "selector_N_candidates": N_WINDOW_GRID,
+        "beta_candidates": CANDIDATE_BETAS,
+        "sla_target": SLA_TARGET,
+        "grace_band": GRACE_BAND,
         "git_commit": git_hash,
         "run_timestamp": datetime.datetime.utcnow().isoformat() + "Z"
     }
@@ -221,27 +239,14 @@ def save_run_provenance():
         json.dump(run_config, f, indent=2)
     print(f"Saved run configuration to: {config_path}")
 
-    # --- Build data_provenance.json from coverage report (best-effort) ---
+    # --- Build data_provenance.json from coverage report and artifacts ---
     coverage_report = os.path.join(
         PROJECT_ROOT, "data", "processed", "google", "dataset_coverage_report.txt"
     )
-    selected_machines_path = os.path.join(PROJECT_ROOT, "data", "selected_machines.json")
-
-    # Hash of selected machine IDs (detects silent machine list changes)
-    machine_ids_hash = "unknown"
-    if os.path.exists(selected_machines_path):
-        try:
-            with open(selected_machines_path, "r") as f:
-                raw = json.load(f)
-            # Handles both list and dict formats
-            ids = sorted(raw) if isinstance(raw, list) else sorted(raw.keys())
-            machine_ids_hash = hashlib.sha256(
-                "|".join(str(i) for i in ids).encode()
-            ).hexdigest()[:16]
-        except Exception:
-            pass
 
     provenance = {
+        "data_parts_processed_count": parts_processed_count,
+        "selected_machine_count": machine_count,
         "selected_machine_ids_hash": machine_ids_hash,
         "coverage_report_exists": os.path.exists(coverage_report),
         "run_config_git_commit": git_hash,
