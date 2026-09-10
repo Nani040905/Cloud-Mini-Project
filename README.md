@@ -65,10 +65,11 @@ To demonstrate why static heuristics fail, we evaluated 100 randomly sampled pro
 | :--- | :--- | :--- | :---: | :---: |
 | **B0: Persistence** | $\hat{y}_t = y_{t-1}$ | Fixed $+10\%$ | **21.24%** | 0.0248 |
 | **B0b: Seasonal Naive** | $\hat{y}_t = y_{t-m}$ | Fixed $+10\%$ | **27.00%** | 0.0691 |
+| **B0c: Moving Average** | $\hat{y}_t = \text{mean}(y_{t-6:t-1})$ | Fixed $+10\%$ | **22.74%** | 0.0254 |
 | **B2: Holt-Winters** | Additive HW | Fixed $+10\%$ | **32.64%** | 0.0279 |
 | **B3: Forecast Fusion** | HW + GRU | Fixed $+10\%$ | **11.64%** | 0.0445 |
 
-> **Key Takeaway**: Even when using our high-accuracy fused forecaster ($B_3$), which achieves a low prediction error ($\text{MAE} = 0.0387$), adding a fixed 10% buffer still results in **11.64% SLA violations**—almost **6 times higher** than acceptable cloud SLA limits ($\le 2\%$). Accurate predictions alone do not solve cloud resource management; **calibrated uncertainty quantification is non-negotiable**.
+> **Key Takeaway**: Even when using our high-accuracy fused forecaster ($B_3$), which achieves a low prediction error ($\text{MAE} = 0.0387$), adding a fixed 10% buffer still results in **11.64% SLA violations**—almost **6 times higher** than acceptable cloud SLA limits ($\le 2\%$). Similarly, 30-minute causal moving average smoothing ($B_{0c}$) suffers **22.74% SLA violations**. Accurate predictions alone do not solve cloud resource management; **calibrated uncertainty quantification is non-negotiable**.
 
 ---
 
@@ -108,9 +109,9 @@ To demonstrate why static heuristics fail, we evaluated 100 randomly sampled pro
 ```
 
 ### 3.1 Google Cluster Data & Temporal Preprocessing
-- **Raw Data**: Google cluster task usage trace covering 232,903 task records across 299 active machines.
-- **Aggregation**: Interval-weighted overlapping time aggregation over 5-minute bins ($\Delta t = 300\text{ s}$).
-- **Missing vs Idle**: Bins with zero recorded tasks are explicitly separated into true idle utilization ($0.0$) versus unobserved gaps.
+- **Raw Data**: Google Cluster Trace v2 (2011) task usage trace covering 292,498 task records across 299 active machines (84 continuous 5-minute bins, 7.0 hours span).
+- **Aggregation**: Interval-weighted overlapping time aggregation over 5-minute bins ($\Delta t = 300\text{ s}$) verified by formal 8-case unit test suite (`scripts/test_aggregate.py`).
+- **Missing vs Idle**: Bins with zero recorded tasks are explicitly separated into true idle utilization ($0.0$) versus unobserved gaps ($\text{NaN}$).
 - **Strict Chronological Split**: 70% Train, 15% Validation, 15% Test. Temporal isolation is enforced per machine with zero shuffling across time boundaries.
 
 ### 3.2 Dual-Tier Feature Engineering & Causality Guarantees
@@ -194,7 +195,22 @@ This executes all baseline models, trains the dual-tier GRUs, runs forecast fusi
 You can execute individual pipeline stages independently:
 
 ```bash
-# Step 6: Evaluate persistence and seasonal naive baselines (B0, B0b)
+# Step 1: Run aggregation mathematical correctness tests (8/8 cases)
+python scripts/test_aggregate.py
+
+# Step 2: Ingest and filter trace parts
+python scripts/download.py --start 0 --count 50
+
+# Step 3: Aggregate interval overlaps & generate Data Gate coverage report
+python scripts/aggregate.py --aggregate
+
+# Step 4: Machine eligibility audit & selection
+python scripts/eligibility.py
+
+# Step 5: Causal dual-tier feature extraction
+python scripts/features.py
+
+# Step 6: Evaluate baselines (B0, B0b, B0c)
 python scripts/baselines.py
 
 # Step 7: Fit Holt-Winters models and evaluate B2
@@ -210,17 +226,23 @@ python scripts/fusion.py
 # Step 10: Compute causal uncertainty signals (U1, U2, U3)
 python scripts/uncertainty.py
 
-# Step 11: Execute adaptive reliability selector
+# Step 11: Execute adaptive reliability selector & advantage analysis
 python scripts/selector.py
 
 # Step 12: Calibrate constrained buffers and evaluate allocations (B4a-c, Proposed)
 python scripts/allocation.py
 
-# Step 13: Consolidate final results table
+# Step 13: Consolidate final results with per-machine 95% CIs
 python scripts/evaluate.py
 
 # Step 14: Generate publication-quality figures
 python scripts/figures.py
+
+# Step 15: Run 16-run robustness sweep across random seeds & machine counts
+python scripts/robustness.py
+
+# Step 16: Profile computational latency and model parameters
+python run_pipeline.py --profile
 ```
 
 ---
@@ -283,8 +305,8 @@ python scripts/figures.py
 
 ## 6. Empirical Benchmark Results & Findings
 
-### Comprehensive 10-Configuration Comparison
-Evaluated on **100 production machines** from the Google Cluster Trace across 67 five-minute bins:
+### Comprehensive 11-Configuration Comparison
+Evaluated on **100 production machines** from the Google Cluster Trace across 67 five-minute bins (with 95% Confidence Intervals):
 
 <!-- BENCHMARK_TABLE_START -->
 
@@ -317,37 +339,63 @@ The generated publication-quality figures are saved in `figures/`:
 3. `figures/selector_choices.png`: Distribution of winning signals selected across cluster machines.
 4. `figures/allocation_vs_actual.png`: Dynamic allocation curve adapting above workload with grace band.
 
+### Multi-Scale Robustness Validation (16-Run Sweep)
+To verify policy resilience across random subsampling and cluster scale, we evaluated a focused 16-run matrix (4 seeds $\times$ 4 machine counts: 50, 100, 200, 290 machines) in [`scripts/robustness.py`](file:///E:/Cloud/project/scripts/robustness.py):
+- **Fixed 10% Buffer Mean SLA Breach**: **$11.62\%$**
+- **Proposed Adaptive $U^*$ Mean SLA Breach**: **$4.86\%$**
+- **Average SLA Breach Reduction**: **$58.14\%$** across all seeds and cluster sizes.
+
+### Computational Efficiency & Profiling
+Evaluated with PyTorch on single-sample inference latency (1,000 repetitions) and memory footprints:
+- **Global GRU (Base Tier, 7 feat)**: 3,969 parameters, **0.380 ms** inference latency, ~18.6 MB memory.
+- **Global GRU (Extended Tier, 15 feat)**: 4,737 parameters, **0.392 ms** inference latency, ~21.2 MB memory.
+- **Convex Fusion & Baselines**: Executed in $< 0.010$ ms.
+- **Uncertainty & Selector Engines**: Evaluated in $< 0.030$ ms.
+- **Summary**: Total inference overhead is under **0.5 milliseconds**, making the framework suitable for line-rate real-time cloud orchestrators (Kubernetes KEDA, OpenStack, Slurm).
+
 ---
 
 ## 7. Repository Structure
 
 ```
 .
-├── PROJECT_SPEC.md            # Complete frozen mathematical specification (v2.5)
-├── README.md                  # Comprehensive documentation and presentation guide
-├── run_pipeline.py            # Master reproducibility runner
+├── PROJECT_SPEC.md                      # Complete frozen mathematical specification (v2.5)
+├── README.md                            # Comprehensive documentation and presentation guide
+├── run_pipeline.py                      # Master reproducibility runner with --profile support
 ├── data/
-│   ├── candidate_machines.json
-│   ├── selected_machines.json # 100 deterministic evaluation machines (seed=42)
-│   └── processed/google/      # Aggregated time-series and feature tables
-├── models/                    # Trained PyTorch weights and aligned prediction tables
-├── uncertainty/               # Multi-source uncertainty signals and arbitration logs
-├── results/                   # Final consolidated benchmark metrics (final_results.csv)
-├── figures/                   # Publication-ready visualization plots
+│   ├── candidate_machines.json          # 300 sampled candidates (seed=42)
+│   ├── selected_machines.json           # 100 deterministic evaluation machines (seed=42)
+│   └── processed/google/
+│       ├── dataset_coverage_report.txt  # Automated Data Gate dataset coverage report
+│       ├── aggregation_summary.csv      # Cluster-wide task metrics
+│       ├── filtered_parts/              # Filtered parquet shards (parts 0 to 4)
+│       ├── machine_series/              # 299 per-machine continuous 5-min series (84 bins)
+│       └── features_base/               # Causal dual-tier feature matrices
+├── models/                              # Trained PyTorch weights and prediction tables
+├── uncertainty/                         # Multi-source uncertainty signals and selector log
+├── results/
+│   ├── final_results.csv                # Master benchmark metrics (with 95% CI)
+│   ├── final_results_detailed.csv       # Granular per-machine distribution statistics
+│   ├── computational_efficiency.csv     # Inference latencies, parameters, and memory
+│   └── robustness_results.csv           # 16-run robustness parameter sweep
+├── figures/                             # Publication-ready visualization plots
 └── scripts/
-    ├── utils.py               # Shared constants, vectorized fast_spearman, compute_metrics
-    ├── aggregate.py           # Interval-weighted overlap temporal aggregation
-    ├── eligibility.py         # Candidate machine audit and selection
-    ├── features.py            # Dual-tier causal feature extraction
-    ├── baselines.py           # B0 (Persistence) and B0b (Seasonal Naive)
-    ├── holt_winters.py        # Triple exponential smoothing with causal refit
-    ├── gru.py                 # Global GRU model (Base & Extended tiers)
-    ├── fusion.py              # Convex forecast combination
-    ├── uncertainty.py         # Causal U1, U2, U3 uncertainty generator
-    ├── selector.py            # Adaptive reliability selector with Spearman routing
-    ├── allocation.py          # Constrained safety buffer optimization
-    ├── evaluate.py            # Master metric consolidation
-    └── figures.py             # Publication plot generator
+    ├── utils.py                         # Shared constants, fast_spearman, compute_metrics
+    ├── test_aggregate.py                # Formal 8-case aggregation unit test suite
+    ├── aggregate.py                     # Interval-weighted overlap aggregation & Data Gate
+    ├── eligibility.py                   # Candidate machine audit and selection
+    ├── features.py                      # Dual-tier causal feature extraction
+    ├── baselines.py                     # B0, B0b, and B0c (Causal Moving Average)
+    ├── holt_winters.py                  # Triple exponential smoothing with causal refit
+    ├── gru.py                           # Global GRU model (Base & Extended tiers)
+    ├── fusion.py                        # Convex forecast combination
+    ├── uncertainty.py                   # Causal U1, U2, U3 uncertainty generator
+    ├── selector.py                      # Adaptive reliability selector with dynamic advantage
+    ├── allocation.py                    # Constrained safety buffer optimization
+    ├── evaluate.py                      # Master metric consolidation with 95% CIs
+    ├── generate_readme_tables.py        # Automated Markdown table synchronization
+    ├── robustness.py                    # 16-run parameter sweep across seeds and scale
+    └── figures.py                       # Publication plot generator
 ```
 
 ---
