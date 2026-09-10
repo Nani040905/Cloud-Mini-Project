@@ -33,12 +33,40 @@ COL_NAMES_USAGE   = ['start_time', 'end_time', 'machine_id', 'cpu_rate', 'canoni
 
 
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from requests.adapters import HTTPAdapter
+from urllib3.util import Retry
 
-def download_file(url: str, dest_path: str, desc: str = "", max_retries: int = 5):
-    """Download a file with streaming, progress bar, automatic resume, and retry logic."""
+CHUNK_SIZE = 4 * 1024 * 1024  # 4 MB chunk size (maximizes socket throughput, zero throttling)
+
+USAGE_DTYPES = {
+    'start_time': 'float64',
+    'end_time': 'float64',
+    'machine_id': 'float64',
+    'cpu_rate': 'float32',
+    'canonical_memory_usage': 'float32',
+    'disk_io_time': 'float32'
+}
+
+
+def create_session() -> requests.Session:
+    """Create a requests Session with HTTP keep-alive and connection pooling."""
+    session = requests.Session()
+    retries = Retry(total=5, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
+    adapter = HTTPAdapter(pool_connections=32, pool_maxsize=32, max_retries=retries)
+    session.mount('https://', adapter)
+    session.mount('http://', adapter)
+    return session
+
+
+GLOBAL_SESSION = create_session()
+
+
+def download_file(url: str, dest_path: str, desc: str = "", max_retries: int = 5, session: requests.Session = GLOBAL_SESSION):
+    """Download a file with streaming, progress bar, automatic resume, and retry logic without artificial speed limits."""
     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
 
-    head_resp = requests.head(url, timeout=30)
+    head_resp = session.head(url, timeout=30)
     head_resp.raise_for_status()
     total_size = int(head_resp.headers.get('content-length', 0))
 
@@ -54,14 +82,12 @@ def download_file(url: str, dest_path: str, desc: str = "", max_retries: int = 5
                 headers['Range'] = f"bytes={downloaded_bytes}-"
                 mode = 'ab'
             elif downloaded_bytes > total_size:
-                # Corrupted or oversized partial file -> restart cleanly
                 downloaded_bytes = 0
                 mode = 'wb'
 
-            resp = requests.get(url, headers=headers, stream=True, timeout=60)
+            resp = session.get(url, headers=headers, stream=True, timeout=(15, 60))
             if resp.status_code not in (200, 206):
-                # If server doesn't accept range, fall back to full download
-                resp = requests.get(url, stream=True, timeout=60)
+                resp = session.get(url, stream=True, timeout=(15, 60))
                 resp.raise_for_status()
                 downloaded_bytes = 0
                 mode = 'wb'
@@ -75,7 +101,7 @@ def download_file(url: str, dest_path: str, desc: str = "", max_retries: int = 5
                 unit_divisor=1024,
                 leave=False
             ) as bar:
-                for chunk in resp.iter_content(chunk_size=65536):
+                for chunk in resp.iter_content(chunk_size=CHUNK_SIZE):
                     if chunk:
                         f.write(chunk)
                         bar.update(len(chunk))
@@ -130,61 +156,87 @@ def step1_get_candidates(force: bool = False) -> set:
     return set(chosen_candidates)
 
 
-def step2_stream_filter(candidates: set, start_part: int = 0, num_parts: int = TOTAL_PARTS, force: bool = False):
+def process_single_part(part_idx: int, candidates: set, force: bool = False):
+    """Download, filter, save parquet, and clean up a single task_usage part."""
+    parquet_name = f"filtered_{part_idx:05d}.parquet"
+    parquet_path = os.path.join(PROCESSED_DIR, parquet_name)
+
+    if os.path.exists(parquet_path) and not force:
+        return part_idx, 0, True
+
+    part_name    = f"part-{part_idx:05d}-of-00500.csv.gz"
+    url          = f"{BASE_URL}/task_usage/{part_name}"
+    raw_local    = os.path.join(RAW_USAGE_DIR, part_name)
+
+    try:
+        download_file(url, raw_local, desc=f"Part {part_idx:03d}")
+        chunk = pd.read_csv(
+            raw_local,
+            header=None,
+            usecols=COLS_USAGE,
+            names=COL_NAMES_USAGE,
+            dtype=USAGE_DTYPES,
+            compression='gzip'
+        )
+        filtered = chunk[chunk['machine_id'].isin(candidates)].copy()
+
+        if len(filtered) > 0:
+            filtered.to_parquet(parquet_path, index=False, engine='pyarrow')
+            rows_kept = len(filtered)
+        else:
+            filtered.to_parquet(parquet_path, index=False, engine='pyarrow')
+            rows_kept = 0
+
+        print(f"[{part_idx + 1:03d}/{TOTAL_PARTS}] Kept {rows_kept} rows for {len(candidates)} candidate machines.")
+        return part_idx, rows_kept, False
+
+    finally:
+        if os.path.exists(raw_local):
+            os.remove(raw_local)
+
+
+def step2_stream_filter(candidates: set, start_part: int = 0, num_parts: int = TOTAL_PARTS,
+                        force: bool = False, workers: int = 4):
     """
     Stream each task_usage part, filter rows to candidates, save parquet,
     and delete raw csv.gz immediately to conserve disk space.
+    Uses ThreadPoolExecutor for 3-4 parallel downloads and processing.
     """
     os.makedirs(PROCESSED_DIR, exist_ok=True)
     os.makedirs(RAW_USAGE_DIR, exist_ok=True)
 
     end_part = min(TOTAL_PARTS, start_part + num_parts)
-    print(f"\n--- Streaming parts {start_part} to {end_part - 1} (total {end_part - start_part} parts) ---")
+    print(f"\n--- Streaming parts {start_part} to {end_part - 1} (total {end_part - start_part} parts, {workers} parallel workers) ---")
 
+    # Collect part indices that actually need processing
+    pending_parts = []
     for part_idx in range(start_part, end_part):
-        part_name    = f"part-{part_idx:05d}-of-00500.csv.gz"
-        parquet_name = f"filtered_{part_idx:05d}.parquet"
-        parquet_path = os.path.join(PROCESSED_DIR, parquet_name)
+        parquet_path = os.path.join(PROCESSED_DIR, f"filtered_{part_idx:05d}.parquet")
+        if not (os.path.exists(parquet_path) and not force):
+            pending_parts.append(part_idx)
+        else:
+            print(f"[{part_idx + 1:03d}/{TOTAL_PARTS}] Part part-{part_idx:05d}-of-00500.csv.gz already processed -> skipping.")
 
-        # Check if already processed (resumable unless force is set)
-        if os.path.exists(parquet_path) and not force:
-            print(f"[{part_idx + 1:03d}/{TOTAL_PARTS}] Part {part_name} already processed -> skipping.")
-            continue
+    if not pending_parts:
+        print("All requested parts are already processed.")
+        return
 
-        url       = f"{BASE_URL}/task_usage/{part_name}"
-        raw_local = os.path.join(RAW_USAGE_DIR, part_name)
-
-        try:
-            download_file(url, raw_local, desc=f"Part {part_idx:03d}")
-            chunk = pd.read_csv(
-                raw_local,
-                header=None,
-                usecols=COLS_USAGE,
-                names=COL_NAMES_USAGE,
-                compression='gzip'
-            )
-            filtered = chunk[chunk['machine_id'].isin(candidates)].copy()
-
-            if len(filtered) > 0:
-                filtered.to_parquet(parquet_path, index=False, engine='pyarrow')
-                rows_kept = len(filtered)
-            else:
-                # Still write empty dataframe so resumption knows this part is done
-                filtered.to_parquet(parquet_path, index=False, engine='pyarrow')
-                rows_kept = 0
-
-            print(f"[{part_idx + 1:03d}/{TOTAL_PARTS}] Kept {rows_kept} rows for {len(candidates)} candidate machines.")
-
-        finally:
-            # Always delete raw part file immediately to keep peak storage < 100 MB
-            if os.path.exists(raw_local):
-                os.remove(raw_local)
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(process_single_part, p_idx, candidates, force): p_idx for p_idx in pending_parts}
+        for future in as_completed(futures):
+            p_idx = futures[future]
+            try:
+                future.result()
+            except Exception as e:
+                print(f"[Error] Failed processing part {p_idx}: {e}")
+                raise
 
 
 def main():
     parser = argparse.ArgumentParser(description="Download and stream-filter Google Cluster Trace v2")
     parser.add_argument("--start", type=int, default=0, help="Starting part index (0-499)")
     parser.add_argument("--count", type=int, default=TOTAL_PARTS, help="Number of parts to process")
+    parser.add_argument("--workers", type=int, default=4, help="Number of parallel download & filter workers (default 4)")
     parser.add_argument("--test", action="store_true", help="Run test mode (process 3 parts only)")
     parser.add_argument("--force", action="store_true", help="Force re-download and re-filter even if files exist")
     args = parser.parse_args()
@@ -193,9 +245,9 @@ def main():
 
     if args.test:
         print("\n*** RUNNING IN TEST MODE (3 PARTS ONLY) ***")
-        step2_stream_filter(candidates, start_part=0, num_parts=3, force=args.force)
+        step2_stream_filter(candidates, start_part=0, num_parts=3, force=args.force, workers=args.workers)
     else:
-        step2_stream_filter(candidates, start_part=args.start, num_parts=args.count, force=args.force)
+        step2_stream_filter(candidates, start_part=args.start, num_parts=args.count, force=args.force, workers=args.workers)
 
     print("\nProcessing complete.")
 
