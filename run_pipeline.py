@@ -21,9 +21,12 @@ Usage:
 
 import os
 import sys
+import json
+import hashlib
+import datetime
+import subprocess
 import time
 import argparse
-import subprocess
 
 # Ensure scripts directory is in python path
 PROJECT_ROOT = os.path.abspath(os.path.dirname(__file__))
@@ -163,6 +166,110 @@ def profile_computational_cost():
     print(f"Computational efficiency metrics saved to: {out_path}\n")
 
 
+def save_run_provenance():
+    """
+    Saves run_config.json and data_provenance.json to results/ after a full pipeline run.
+    These files allow any result to be fully reproduced from a single record and are
+    required for academic reproducibility (Fix 17).
+    """
+    import pandas as pd
+
+    results_dir = os.path.join(PROJECT_ROOT, "results")
+    os.makedirs(results_dir, exist_ok=True)
+
+    # --- Resolve git commit hash (best-effort) ---
+    try:
+        git_hash = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"], cwd=PROJECT_ROOT
+        ).strip().decode("utf-8")
+    except Exception:
+        git_hash = "unknown"
+
+    # --- Build run_config.json ---
+    run_config = {
+        "dataset": "Google Cluster Trace v2 (2011)",
+        "data_parts_used": "configured in scripts/download.py",
+        "machine_count": 100,
+        "random_seed": 42,
+        "train_val_test_split": [0.70, 0.15, 0.15],
+        "features_base": [
+            "cpu", "cpu_lag1", "cpu_lag2",
+            "roll_mean", "roll_std", "hour_sin", "hour_cos"
+        ],
+        "features_extended": [
+            "cpu", "cpu_lag1", "cpu_lag2",
+            "roll_mean", "roll_std", "hour_sin", "hour_cos",
+            "mem_mean", "cpu_lag3", "roll_min", "roll_max",
+            "dow_sin", "dow_cos", "task_density", "cpu_delta"
+        ],
+        "gru_config": {
+            "hidden": 32, "layers": 1, "dropout": 0.2,
+            "output": "sigmoid", "seq_len": 12
+        },
+        "hw_seasonality_candidates": [48, 144, 288],
+        "fusion_alpha_candidates": [round(x * 0.1, 1) for x in range(11)],
+        "selector_N_candidates": [20, 30, 50, 75, 100],
+        "beta_candidates": [0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 14.0, 20.0],
+        "sla_target": 0.01,           # ≤1.0% breach budget (99% SLA compliance)
+        "grace_band": 0.005,
+        "git_commit": git_hash,
+        "run_timestamp": datetime.datetime.utcnow().isoformat() + "Z"
+    }
+
+    config_path = os.path.join(results_dir, "run_config.json")
+    with open(config_path, "w") as f:
+        json.dump(run_config, f, indent=2)
+    print(f"Saved run configuration to: {config_path}")
+
+    # --- Build data_provenance.json from coverage report (best-effort) ---
+    coverage_report = os.path.join(
+        PROJECT_ROOT, "data", "processed", "google", "dataset_coverage_report.txt"
+    )
+    selected_machines_path = os.path.join(PROJECT_ROOT, "data", "selected_machines.json")
+
+    # Hash of selected machine IDs (detects silent machine list changes)
+    machine_ids_hash = "unknown"
+    if os.path.exists(selected_machines_path):
+        try:
+            with open(selected_machines_path, "r") as f:
+                raw = json.load(f)
+            # Handles both list and dict formats
+            ids = sorted(raw) if isinstance(raw, list) else sorted(raw.keys())
+            machine_ids_hash = hashlib.sha256(
+                "|".join(str(i) for i in ids).encode()
+            ).hexdigest()[:16]
+        except Exception:
+            pass
+
+    provenance = {
+        "selected_machine_ids_hash": machine_ids_hash,
+        "coverage_report_exists": os.path.exists(coverage_report),
+        "run_config_git_commit": git_hash,
+        "run_timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+        "note": (
+            "See data/processed/google/dataset_coverage_report.txt for full "
+            "temporal coverage, NaN fraction, and machine eligibility statistics."
+        )
+    }
+
+    # Attempt to extract key stats from final_results.csv for inline provenance
+    final_csv = os.path.join(results_dir, "final_results.csv")
+    if os.path.exists(final_csv):
+        try:
+            fr = pd.read_csv(final_csv)
+            proposed_row = fr[fr['Config'].str.contains("Proposed", case=False, na=False)]
+            if len(proposed_row) > 0:
+                provenance["empirical_sla_breach_rate"] = float(proposed_row["SLA_Breach"].iloc[0])
+                provenance["empirical_over_prov_mean"] = float(proposed_row["Over_Prov"].iloc[0])
+        except Exception:
+            pass
+
+    prov_path = os.path.join(results_dir, "data_provenance.json")
+    with open(prov_path, "w") as f:
+        json.dump(provenance, f, indent=2)
+    print(f"Saved data provenance to: {prov_path}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Master Pipeline Runner for Cloud Allocation Benchmarks")
     parser.add_argument("--all", action="store_true", help="Execute complete Phase 1 benchmark suite (Steps 6-14)")
@@ -187,6 +294,10 @@ def main():
 
     execute_pipeline(steps_to_run)
     profile_computational_cost()
+
+    # Save experiment provenance only on a full pipeline run
+    if args.all or (not args.steps and not args.eval_only):
+        save_run_provenance()
 
 
 if __name__ == "__main__":
