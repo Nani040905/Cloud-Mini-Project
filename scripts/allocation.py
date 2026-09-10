@@ -51,13 +51,12 @@ def calibrate_beta(val_df: pd.DataFrame, u_col: str) -> float:
 
     # Find the smallest beta satisfying SLA breach budget <= 2.0%
     qualifying_indices = np.where(breach_rates <= SLA_TARGET)[0]
-    if len(qualifying_indices) > 0:
-        best_beta = float(CANDIDATE_BETAS[qualifying_indices[0]])
-    else:
-        best_idx = int(np.argmin(breach_rates))
-        best_beta = float(CANDIDATE_BETAS[best_idx])
-        print(f"[Notice] No candidate strictly achieved <= {SLA_TARGET:.1%} SLA on validation for {u_col}. Selected beta = {best_beta:.2f} (Breach: {breach_rates[best_idx]:.2%})")
-
+    if len(qualifying_indices) == 0:
+        raise RuntimeError(
+            f"No candidate beta satisfies validation SLA <= {SLA_TARGET:.1%} "
+            f"for {u_col}. Breach rates: {dict(zip(CANDIDATE_BETAS, [round(float(r), 4) for r in breach_rates]))}"
+        )
+    best_beta = float(CANDIDATE_BETAS[qualifying_indices[0]])
     return best_beta
 
 
