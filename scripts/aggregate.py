@@ -129,6 +129,8 @@ def clean_and_fill_gaps(series: np.ndarray, touched: np.ndarray, max_gap: int = 
     """
     s = pd.Series(series, dtype=np.float64)
     s[~touched] = np.nan
+    if max_gap <= 0:
+        return s
     s_clean = s.interpolate(method='linear', limit=max_gap, limit_direction='forward')
     return s_clean
 
