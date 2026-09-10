@@ -65,12 +65,6 @@ def compute_uncertainty_signals(fusion_preds_path: str, series_dir: str, output_
     # --------------------------------------------------------------------------
     # Precompute Last Training Error per Machine (Causal Boundary Anchor)
     # --------------------------------------------------------------------------
-    split_info = {}
-    from utils import SPLIT_INFO_PATH
-    if os.path.exists(SPLIT_INFO_PATH):
-        with open(SPLIT_INFO_PATH, 'r') as f:
-            split_info = json.load(f)
-
     machine_last_train_err = {}
     train_subset = preds_df[preds_df['split'] == 'train'] if 'train' in preds_df['split'].values else None
 
@@ -79,19 +73,10 @@ def compute_uncertainty_signals(fusion_preds_path: str, series_dir: str, output_
             tr_m = train_subset[train_subset['machine_id'] == mid]
             last_err = abs(tr_m['fused_pred'].iloc[-1] - tr_m['y_true'].iloc[-1])
         else:
-            # Anchor to machine series training boundary (persistence error at train split tail)
-            series_path = os.path.join(series_dir, f"{mid}.parquet")
-            if os.path.exists(series_path) and str(mid) in split_info:
-                s_df = pd.read_parquet(series_path).sort_values('bin_idx')
-                tr_end = split_info[str(mid)]['train_range'][1]
-                if tr_end >= 2 and tr_end <= len(s_df):
-                    y_tr_last = s_df['cpu'].iloc[tr_end - 1]
-                    y_tr_prev = s_df['cpu'].iloc[tr_end - 2]
-                    last_err = abs(y_tr_last - y_tr_prev) if not (np.isnan(y_tr_last) or np.isnan(y_tr_prev)) else 0.05
-                else:
-                    last_err = 0.05
-            else:
-                last_err = 0.05
+            raise RuntimeError(
+                f"Machine {mid}: Missing fused training predictions. "
+                f"U2 requires fused training residual to initialize causally without fallback."
+            )
         machine_last_train_err[mid] = float(last_err)
 
     # --------------------------------------------------------------------------
@@ -106,7 +91,7 @@ def compute_uncertainty_signals(fusion_preds_path: str, series_dir: str, output_
         for mid, grp in val_subset.groupby('machine_id'):
             yt = grp['y_true'].values
             yp = grp['fused_pred'].values
-            init_err = machine_last_train_err.get(mid, 0.05)
+            init_err = machine_last_train_err[mid]
             u2_cand = compute_u2_series(yt, yp, lam, init_err)
             err = np.abs(yp - yt)
             rho = fast_spearman(u2_cand, err)
@@ -142,10 +127,14 @@ def compute_uncertainty_signals(fusion_preds_path: str, series_dir: str, output_
         val_rows = m_df[val_mask]
         test_rows = m_df[test_mask]
 
-        init_val_err = machine_last_train_err.get(mid, 0.05)
+        if mid not in machine_last_train_err:
+            raise RuntimeError(f"Machine {mid}: Missing training error to initialize U2_val causally.")
+        init_val_err = machine_last_train_err[mid]
         u2_val = compute_u2_series(val_rows['y_true'].values, val_rows['fused_pred'].values, best_lambda, init_val_err)
 
-        init_test_err = abs(val_rows['fused_pred'].iloc[-1] - val_rows['y_true'].iloc[-1]) if len(val_rows) > 0 else 0.05
+        if len(val_rows) == 0:
+            raise RuntimeError(f"Machine {mid}: Missing validation predictions to initialize U2_test causally.")
+        init_test_err = float(abs(val_rows['fused_pred'].iloc[-1] - val_rows['y_true'].iloc[-1]))
         u2_test = compute_u2_series(test_rows['y_true'].values, test_rows['fused_pred'].values, best_lambda, init_test_err)
 
         u2_combined = np.zeros(len(m_df))
