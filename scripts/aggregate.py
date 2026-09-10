@@ -263,7 +263,49 @@ def aggregate_existing_parquets(filtered_dir: str, output_dir: str):
     print(f"\nAggregation completed for {len(summary_df)} machines.")
     print(f"Per-machine series saved to: {series_dir}")
     print(f"Summary saved to: {summary_path}")
-    print(summary_df.describe().to_string())
+
+    # Generate and save formal Dataset Coverage Report (Data Gate)
+    all_cpus = []
+    for f_path in glob.glob(os.path.join(series_dir, "*.parquet")):
+        m_df = pd.read_parquet(f_path)
+        all_cpus.append(m_df['cpu'].values)
+
+    all_cpus_arr = np.concatenate(all_cpus) if all_cpus else np.array([])
+    valid_cpus = all_cpus_arr[~np.isnan(all_cpus_arr)]
+    nan_frac = np.isnan(all_cpus_arr).mean() if len(all_cpus_arr) > 0 else 0.0
+    idle_frac = (valid_cpus == 0.0).mean() if len(valid_cpus) > 0 else 0.0
+
+    duration_sec = max_sec - min_sec
+    duration_days = duration_sec / 86400.0
+    duration_hours = (duration_sec % 86400.0) / 3600.0
+    duration_mins = (duration_sec % 3600.0) / 60.0
+
+    report_lines = [
+        "=" * 52,
+        "          DATASET COVERAGE REPORT",
+        "=" * 52,
+        f"Task records total         : {len(full_df):,}",
+        f"Unique machines in trace   : {full_df['machine_id'].nunique():,}",
+        f"Temporal bins (5-min)      : {total_windows:,}",
+        f"Earliest timestamp         : {min_sec:.1f} s",
+        f"Latest timestamp           : {max_sec:.1f} s",
+        f"Coverage duration          : {int(duration_days)} days, {int(duration_hours)} hours, {int(duration_mins)} minutes",
+        "-" * 52,
+        "CPU stats (across active machines):",
+        f"  Mean                     : {valid_cpus.mean():.4f}" if len(valid_cpus) > 0 else "  Mean: N/A",
+        f"  Std                      : {valid_cpus.std():.4f}" if len(valid_cpus) > 0 else "  Std: N/A",
+        f"  Min                      : {valid_cpus.min():.4f}" if len(valid_cpus) > 0 else "  Min: N/A",
+        f"  Max                      : {valid_cpus.max():.4f}" if len(valid_cpus) > 0 else "  Max: N/A",
+        f"NaN fraction               : {nan_frac:.2%}",
+        f"Zero/idle fraction         : {idle_frac:.2%}",
+        "=" * 52
+    ]
+    report_str = "\n".join(report_lines)
+    print("\n" + report_str)
+
+    report_path = os.path.join(output_dir, "dataset_coverage_report.txt")
+    with open(report_path, "w") as f:
+        f.write(report_str + "\n")
 
 
 def main():
