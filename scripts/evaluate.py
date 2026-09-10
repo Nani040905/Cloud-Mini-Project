@@ -72,36 +72,100 @@ def consolidate_results(results_dir: str, models_dir: str):
 
     all_data = pd.concat(dfs, ignore_index=True)
 
+    CONFIG_ORDER = [
+        'B0_Naive', 'B0b_SeasonalNaive_m48', 'B0c_MovingAverage_w6',
+        'B1_GRU_Base', 'B1_GRU_Extended', 'B2_HoltWinters', 'B3_Fusion',
+        'B4a_Static_U1', 'B4b_Static_U2', 'B4c_Static_U3', 'Proposed_Adaptive_U'
+    ]
+
     summary_rows = []
-    for cfg, grp in all_data.groupby('config'):
-        n_machines = int((grp['valid_count'] > 0).sum() if 'valid_count' in grp else len(grp))
-        mae_str = f"{grp['mae'].mean():.4f} +/- {grp['mae'].std():.4f}" if 'mae' in grp else "N/A"
-        rmse_str = f"{grp['rmse'].mean():.4f} +/- {grp['rmse'].std():.4f}" if 'rmse' in grp else "N/A"
+    detailed_rows = []
+
+    # Sort configurations by defined order
+    existing_configs = sorted(all_data['config'].unique(),
+                              key=lambda c: CONFIG_ORDER.index(c) if c in CONFIG_ORDER else 999)
+
+    for cfg in existing_configs:
+        grp = all_data[all_data['config'] == cfg]
+        valid_grp = grp[grp['valid_count'] > 0] if 'valid_count' in grp.columns else grp
+        n_machines = len(valid_grp)
+        if n_machines == 0:
+            continue
+
+        # Helper to compute comprehensive distribution stats
+        def calc_dist_stats(series):
+            clean = series.dropna()
+            if len(clean) == 0:
+                return {'mean': np.nan, 'std': np.nan, 'median': np.nan,
+                        'ci95': np.nan, 'ci_lower': np.nan, 'ci_upper': np.nan,
+                        'min': np.nan, 'max': np.nan}
+            m = clean.mean()
+            s = clean.std() if len(clean) > 1 else 0.0
+            med = clean.median()
+            ci = 1.96 * s / np.sqrt(len(clean)) if len(clean) > 1 else 0.0
+            return {
+                'mean': m, 'std': s, 'median': med,
+                'ci95': ci, 'ci_lower': m - ci, 'ci_upper': m + ci,
+                'min': clean.min(), 'max': clean.max()
+            }
+
+        stats_dict = {}
+        for col in ['mae', 'rmse', 'sla_breach_rate', 'overshoot_rate', 'over_prov_mean', 'under_prov_mean', 'clip_fraction']:
+            if col in valid_grp.columns:
+                col_stats = calc_dist_stats(valid_grp[col])
+                stats_dict[col] = col_stats
+                detailed_rows.append({
+                    'Configuration': cfg,
+                    'Metric': col,
+                    'N': n_machines,
+                    'Mean': round(col_stats['mean'], 6),
+                    'Median': round(col_stats['median'], 6),
+                    'Std': round(col_stats['std'], 6),
+                    '95% CI Lower': round(col_stats['ci_lower'], 6),
+                    '95% CI Upper': round(col_stats['ci_upper'], 6),
+                    'Min': round(col_stats['min'], 6),
+                    'Max': round(col_stats['max'], 6)
+                })
+
+        # Format concise master summary row
+        sla = stats_dict.get('sla_breach_rate', {})
+        ovp = stats_dict.get('over_prov_mean', {})
+        und = stats_dict.get('under_prov_mean', {})
+        mae_s = stats_dict.get('mae', {})
+        rmse_s = stats_dict.get('rmse', {})
+
+        mae_str = f"{mae_s.get('mean', 0.0):.4f} +/- {mae_s.get('ci95', 0.0):.4f}" if 'mae' in stats_dict else "N/A"
+        rmse_str = f"{rmse_s.get('mean', 0.0):.4f} +/- {rmse_s.get('ci95', 0.0):.4f}" if 'rmse' in stats_dict else "N/A"
 
         summary_rows.append({
             'Configuration': cfg,
             'Machines': n_machines,
-            'MAE': mae_str,
-            'RMSE': rmse_str,
-            'SLA Breach Rate': f"{grp['sla_breach_rate'].mean():.2%}",
-            'Overshoot Rate': f"{grp['overshoot_rate'].mean():.2%}",
-            'Over-Prov Mean': f"{grp['over_prov_mean'].mean():.4f}",
-            'Under-Prov Mean': f"{grp['under_prov_mean'].mean():.4f}",
-            'Clip Fraction': f"{grp['clip_fraction'].mean():.2%}"
+            'MAE (95% CI)': mae_str,
+            'RMSE (95% CI)': rmse_str,
+            'SLA Breach Rate': f"{sla.get('mean', 0.0):.2%} +/- {sla.get('ci95', 0.0):.2%}",
+            'Overshoot Rate': f"{stats_dict.get('overshoot_rate', {}).get('mean', 0.0):.2%}",
+            'Over-Prov Mean': f"{ovp.get('mean', 0.0):.4f} +/- {ovp.get('ci95', 0.0):.4f}",
+            'Under-Prov Mean': f"{und.get('mean', 0.0):.4f} +/- {und.get('ci95', 0.0):.4f}",
+            'Clip Fraction': f"{stats_dict.get('clip_fraction', {}).get('mean', 0.0):.2%}"
         })
 
     summary_df = pd.DataFrame(summary_rows)
+    detailed_df = pd.DataFrame(detailed_rows)
 
     os.makedirs(results_dir, exist_ok=True)
     out_csv = os.path.join(results_dir, "final_results.csv")
-    summary_df.to_csv(out_csv, index=False)
+    out_detailed_csv = os.path.join(results_dir, "final_results_detailed.csv")
 
-    print("\n" + "=" * 100)
-    print("                      COMPREHENSIVE BENCHMARK EVALUATION TABLE")
-    print("=" * 100)
+    summary_df.to_csv(out_csv, index=False)
+    detailed_df.to_csv(out_detailed_csv, index=False)
+
+    print("\n" + "=" * 115)
+    print("                      COMPREHENSIVE BENCHMARK EVALUATION TABLE (WITH 95% CI)")
+    print("=" * 115)
     print(summary_df.to_string(index=False))
-    print("=" * 100)
-    print(f"\nFinal consolidated benchmark results saved to: {out_csv}")
+    print("=" * 115)
+    print(f"\nSummary results saved to: {out_csv}")
+    print(f"Detailed per-machine distribution metrics saved to: {out_detailed_csv}")
 
 
 def main():
