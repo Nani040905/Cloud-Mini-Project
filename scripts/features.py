@@ -47,6 +47,10 @@ def extract_features_single_machine(df_m: pd.DataFrame) -> pd.DataFrame:
         if col in df.columns:
             df[col] = df[col].ffill().fillna(0.0)
 
+    # Step 1: Extended feature 'disk' must strictly represent disk_io_time(t-1)
+    if 'disk' in df.columns:
+        df['disk'] = df['disk'].shift(1)
+
     if 'datetime' not in df.columns:
         # 5-minute bins from trace start
         df['datetime'] = TRACE_START + pd.to_timedelta(df['bin_idx'] * 5, unit='min')

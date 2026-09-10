@@ -71,20 +71,21 @@ class TestExperimentalIntegrity(unittest.TestCase):
             )
 
     def test_03_zero_future_leakage(self):
-        """F9: Verify that mutating cpu at row t does NOT alter features at row t."""
+        """F9 & Step 1: Verify that mutating cpu, mem, or disk at row t does NOT alter features at row t."""
         feat_orig = extract_features_single_machine(self.synth_df)
         
         mod_df = self.synth_df.copy()
         target_t = 15
-        mod_df.loc[target_t, 'cpu'] = mod_df.loc[target_t, 'cpu'] + 0.5  # mutate t
-        mod_df.loc[target_t, 'mem'] = mod_df.loc[target_t, 'mem'] + 0.3  # mutate mem at t
+        mod_df.loc[target_t, 'cpu'] = mod_df.loc[target_t, 'cpu'] + 0.5   # mutate cpu at t
+        mod_df.loc[target_t, 'mem'] = mod_df.loc[target_t, 'mem'] + 0.3   # mutate mem at t
+        mod_df.loc[target_t, 'disk'] = mod_df.loc[target_t, 'disk'] + 0.4 # mutate disk at t
         
         feat_mod = extract_features_single_machine(mod_df)
         
         # Causal features at row target_t MUST NOT change (except the raw target columns 'cpu' and 'mem')
         causal_cols = [
             'cpu_lag1', 'cpu_lag2', 'roll_mean', 'roll_std',
-            'mem_lag1', 'mem_roll_mean', 'cpu_diff1', 'roll_max'
+            'mem_lag1', 'mem_roll_mean', 'disk', 'cpu_diff1', 'roll_max'
         ]
         for col in causal_cols:
             self.assertAlmostEqual(
@@ -170,6 +171,35 @@ class TestExperimentalIntegrity(unittest.TestCase):
         self.assertTrue(feat_df.loc[10:14, 'cpu'].isna().all(), "CPU gaps must strictly remain NaN.")
         # Assert disk NaNs were causally forward-filled per specification
         self.assertFalse(feat_df.loc[12:13, 'disk'].isna().any(), "Disk dropouts should be forward-filled.")
+
+    def test_07_disk_causality_and_anti_leakage(self):
+        """Step 1 / F16: Verify that extended feature disk represents disk_io_time(t-1) and mutating disk(t) does not alter feature at t."""
+        feat_df = extract_features_single_machine(self.synth_df)
+        self.assertIn('disk', feat_df.columns, "Extended feature 'disk' must be present.")
+        
+        # Row 0 should be NaN after shift(1)
+        self.assertTrue(np.isnan(feat_df['disk'].iloc[0]), "disk feature at row 0 must be NaN after shift(1).")
+        
+        # For all subsequent rows t >= 1, disk[t] == synth_df['disk'][t-1]
+        for t in range(1, len(feat_df)):
+            self.assertAlmostEqual(
+                feat_df['disk'].iloc[t],
+                self.synth_df['disk'].iloc[t - 1],
+                places=6,
+                msg=f"disk feature at index {t} does not match disk at index {t-1}"
+            )
+            
+        # Anti-leakage verification: Mutating disk at target_t must NOT alter disk feature at target_t
+        mod_df = self.synth_df.copy()
+        target_t = 20
+        mod_df.loc[target_t, 'disk'] = mod_df.loc[target_t, 'disk'] + 0.5
+        feat_mod = extract_features_single_machine(mod_df)
+        self.assertAlmostEqual(
+            feat_df.loc[target_t, 'disk'],
+            feat_mod.loc[target_t, 'disk'],
+            places=6,
+            msg=f"Changing disk(t) leaked into disk feature at timestep t={target_t}!"
+        )
 
 
 if __name__ == '__main__':
