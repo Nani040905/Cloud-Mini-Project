@@ -183,8 +183,10 @@ def run_gru_pipeline(tier: str, output_dir: str):
     feature_cols = BASE_FEATURES if tier == 'base' else EXTENDED_FEATURES
     features_dir = os.path.join(PROCESSED_DIR, f"features_{tier}")
 
+    dev_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'
     print(f"\n=======================================================")
     print(f"   Executing Global GRU Pipeline — Tier: {tier.upper()} ({len(feature_cols)} features)")
+    print(f"   Device: {DEVICE} ({dev_name})")
     print(f"=======================================================")
 
     data = prepare_global_datasets(features_dir, SELECTED_MACHINES_PATH, SPLIT_INFO_PATH, feature_cols)
@@ -194,9 +196,13 @@ def run_gru_pipeline(tier: str, output_dir: str):
 
     print(f"Tensors | Train: {tr_X.shape} | Val: {va_X.shape} | Test: {te_X.shape}")
 
-    tr_loader = DataLoader(TensorDataset(torch.tensor(tr_X, dtype=torch.float32), torch.tensor(tr_y, dtype=torch.float32)), batch_size=BATCH_SIZE, shuffle=False)
-    va_loader = DataLoader(TensorDataset(torch.tensor(va_X, dtype=torch.float32), torch.tensor(va_y, dtype=torch.float32)), batch_size=BATCH_SIZE, shuffle=False)
-    te_loader = DataLoader(TensorDataset(torch.tensor(te_X, dtype=torch.float32), torch.tensor(te_y, dtype=torch.float32)), batch_size=BATCH_SIZE, shuffle=False)
+    use_cuda = torch.cuda.is_available()
+    tr_loader = DataLoader(TensorDataset(torch.tensor(tr_X, dtype=torch.float32), torch.tensor(tr_y, dtype=torch.float32)),
+                           batch_size=BATCH_SIZE, shuffle=False, pin_memory=use_cuda)
+    va_loader = DataLoader(TensorDataset(torch.tensor(va_X, dtype=torch.float32), torch.tensor(va_y, dtype=torch.float32)),
+                           batch_size=BATCH_SIZE, shuffle=False, pin_memory=use_cuda)
+    te_loader = DataLoader(TensorDataset(torch.tensor(te_X, dtype=torch.float32), torch.tensor(te_y, dtype=torch.float32)),
+                           batch_size=BATCH_SIZE, shuffle=False, pin_memory=use_cuda)
 
     model = GRUPredictor(input_size=len(feature_cols)).to(DEVICE)
     model = train_gru(model, tr_loader, va_loader)
