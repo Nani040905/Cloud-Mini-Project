@@ -16,12 +16,12 @@ SEED = 42
 BIN_SECONDS = 300.0        # 5-minute aggregation intervals
 SEQ_LEN = 12               # 60 minutes historical lookback for GRU
 GRACE_BAND = 0.005         # 0.5% normalized utilization forgiveness window
-SLA_TARGET = 0.02          # Hard SLA breach budget: <= 2.0%
+SLA_TARGET = 0.01          # Hard SLA breach budget: <= 1.0% (99% SLA compliance)
 N_MACHINES_FINAL = 100     # Evaluation sample size
 ALPHA_GRID = np.linspace(0.0, 1.0, 11)   # [0.0, 0.1, ..., 1.0] for fusion
 LAMBDA_GRID = np.linspace(0.1, 0.9, 9)   # [0.1, 0.2, ..., 0.9] for U2 EWMA
 N_WINDOW_GRID = [20, 30, 50, 75, 100]    # Selector correlation windows
-CANDIDATE_BETAS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0]
+CANDIDATE_BETAS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0, 18.0, 20.0]
 
 # Standard Project Paths
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))

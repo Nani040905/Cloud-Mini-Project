@@ -119,8 +119,8 @@ ALL temporal operations are performed independently within each machine:
 - Unbounded Allocation: A_raw_t = ŷ_t + β_buf * U*_t
 - Physical Capacity Ceiling: A_t = clip(A_raw_t, 0.0, 1.0)
 - Buffer Calibration:
-  - β_buf in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0]
-  - Pick smallest β_buf satisfying validation SLA breach rate <= 2%
+  - β_buf in [0.1, 0.2, ..., 20.0]
+  - Pick smallest β_buf satisfying validation SLA breach rate <= 1.0% (99% SLA compliance target)
   - Hard failure (RuntimeError) if no candidate β satisfies validation SLA
 - Clip Fraction Tracking: clip_fraction = mean(A_raw > 1.0); warn if > 1%
 
@@ -137,7 +137,7 @@ ALL temporal operations are performed independently within each machine:
 - Proposed (P_ext): Fusion (extended 15-features) + Adaptive U* + β-tuned buffer [Ablation Study]
 
 ## 13. Evaluation Metrics
-- SLA Breach Rate: P(y_t > A_t + 0.005) [Target: <= 2%]
+- SLA Breach Rate: P(y_t > A_t + 0.005) [Target: <= 1.0% (99% SLA Compliance Target)]
 - Overshoot Rate: P(y_t > A_t) [Reported]
 - Grace-Zone Rate: P(A_t < y_t <= A_t + 0.005) [Reported]
 - Over-provisioning: mean(max(0, A_t - y_t)) [Minimized]
