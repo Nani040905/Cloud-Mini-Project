@@ -24,9 +24,17 @@ Implements:
 import os
 import json
 import argparse
+import warnings
 import numpy as np
 import pandas as pd
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
+from statsmodels.tools.sm_exceptions import ConvergenceWarning
+from joblib import Parallel, delayed
+
+# Suppress routine optimization convergence warnings from statsmodels L-BFGS-B
+warnings.filterwarnings("ignore", category=ConvergenceWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 from utils import (
     compute_metrics, SERIES_DIR, SELECTED_MACHINES_PATH,
@@ -124,9 +132,49 @@ def fit_hw_single_machine(series: pd.Series, train_slice: tuple, val_slice: tupl
     }
 
 
+def _fit_single_machine_worker(mid, series_dir, split_info, candidate_m):
+    """Worker function for fitting Holt-Winters on a single machine."""
+    warnings.filterwarnings("ignore")
+    in_path = os.path.join(series_dir, f"{mid}.parquet")
+    if not os.path.exists(in_path):
+        return None
+
+    df = pd.read_parquet(in_path)
+    splits = split_info[str(mid)]
+
+    res = fit_hw_single_machine(
+        df['cpu'], splits['train_range'], splits['val_range'], splits['test_range'],
+        candidate_m=candidate_m
+    )
+
+    m = res['metrics']
+    m.update({'machine_id': mid, 'best_m': res['best_m'], 'val_mae': res['val_mae']})
+
+    tr_s, tr_e = splits['train_range']
+    last_train_p = res.get('last_train_pred', float(df['cpu'].iloc[tr_e - 1]))
+    train_rec = {
+        'machine_id': mid, 'split': 'train', 'bin_idx': tr_e - 1,
+        'y_true': df['cpu'].iloc[tr_e - 1], 'hw_pred': last_train_p
+    }
+
+    va_s, va_e = splits['val_range']
+    val_recs = [{
+        'machine_id': mid, 'split': 'val', 'bin_idx': va_s + idx,
+        'y_true': df['cpu'].iloc[va_s + idx], 'hw_pred': p
+    } for idx, p in enumerate(res['val_preds'])]
+
+    te_s, te_e = splits['test_range']
+    test_recs = [{
+        'machine_id': mid, 'split': 'test', 'bin_idx': te_s + idx,
+        'y_true': df['cpu'].iloc[te_s + idx], 'hw_pred': p
+    } for idx, p in enumerate(res['test_preds'])]
+
+    return m, train_rec, val_recs, test_recs
+
+
 def run_holt_winters(series_dir: str, selected_json: str, split_info_path: str,
                      output_dir: str, candidate_m: list = [48, 144, 288]):
-    """Execute Holt-Winters forecasting and B2 evaluation across all machines."""
+    """Execute Holt-Winters forecasting and B2 evaluation across all machines in parallel."""
     with open(selected_json, 'r') as f:
         chosen_mids = json.load(f)
 
@@ -136,46 +184,20 @@ def run_holt_winters(series_dir: str, selected_json: str, split_info_path: str,
     os.makedirs(output_dir, exist_ok=True)
     all_metrics, train_records, val_records, test_records = [], [], [], []
 
-    print(f"Fitting Holt-Winters models across {len(chosen_mids)} machines...")
+    print(f"Fitting Holt-Winters models across {len(chosen_mids)} machines in parallel...")
+    results = Parallel(n_jobs=-1, batch_size=4)(
+        delayed(_fit_single_machine_worker)(mid, series_dir, split_info, candidate_m)
+        for mid in chosen_mids
+    )
 
-    for mid in chosen_mids:
-        in_path = os.path.join(series_dir, f"{mid}.parquet")
-        if not os.path.exists(in_path):
+    for item in results:
+        if item is None:
             continue
-
-        df = pd.read_parquet(in_path)
-        splits = split_info[str(mid)]
-
-        res = fit_hw_single_machine(
-            df['cpu'], splits['train_range'], splits['val_range'], splits['test_range'],
-            candidate_m=candidate_m
-        )
-
-        m = res['metrics']
-        m.update({'machine_id': mid, 'best_m': res['best_m'], 'val_mae': res['val_mae']})
+        m, train_rec, val_recs, test_recs = item
         all_metrics.append(m)
-
-        # Store aligned predictions for downstream fusion & uncertainty
-        tr_s, tr_e = splits['train_range']
-        last_train_p = res.get('last_train_pred', float(df['cpu'].iloc[tr_e - 1]))
-        train_records.append({
-            'machine_id': mid, 'split': 'train', 'bin_idx': tr_e - 1,
-            'y_true': df['cpu'].iloc[tr_e - 1], 'hw_pred': last_train_p
-        })
-
-        va_s, va_e = splits['val_range']
-        for idx, p in enumerate(res['val_preds']):
-            val_records.append({
-                'machine_id': mid, 'split': 'val', 'bin_idx': va_s + idx,
-                'y_true': df['cpu'].iloc[va_s + idx], 'hw_pred': p
-            })
-
-        te_s, te_e = splits['test_range']
-        for idx, p in enumerate(res['test_preds']):
-            test_records.append({
-                'machine_id': mid, 'split': 'test', 'bin_idx': te_s + idx,
-                'y_true': df['cpu'].iloc[te_s + idx], 'hw_pred': p
-            })
+        train_records.append(train_rec)
+        val_records.extend(val_recs)
+        test_records.extend(test_recs)
 
     # Save metrics and predictions
     m_df = pd.DataFrame(all_metrics)

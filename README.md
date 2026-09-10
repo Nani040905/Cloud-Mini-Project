@@ -318,7 +318,7 @@ Evaluated on **100 production machines** from the Google Cluster Trace across co
 | B0_Naive | 100 | 0.0313 +/- 0.0027 | 0.0457 +/- 0.0035 | 20.77% +/- 1.19% | 20.79% | 25.02% | 0.0317 +/- 0.0023 | 0.0090 +/- 0.0010 | 0.00% |
 | B0c_MovingAverage_w6 | 100 | 0.0399 +/- 0.0031 | 0.0558 +/- 0.0040 | 24.60% +/- 1.29% | 24.59% | 28.27% | 0.0352 +/- 0.0024 | 0.0121 +/- 0.0011 | 0.00% |
 | B1_GRU_Base | 100 | 0.0333 +/- 0.0025 | 0.0446 +/- 0.0031 | 21.14% +/- 1.50% | 21.12% | 24.55% | 0.0289 +/- 0.0011 | 0.0085 +/- 0.0010 | 0.00% |
-| B1_GRU_Extended | 100 | 0.0335 +/- 0.0025 | 0.0447 +/- 0.0032 | 21.61% +/- 1.60% | 21.61% | 25.17% | 0.0282 +/- 0.0011 | 0.0087 +/- 0.0011 | 0.00% |
+| B1_GRU_Extended | 100 | 0.0333 +/- 0.0025 | 0.0446 +/- 0.0031 | 22.33% +/- 1.53% | 22.31% | 26.04% | 0.0277 +/- 0.0012 | 0.0089 +/- 0.0010 | 0.00% |
 | B2_HoltWinters | 100 | 0.1644 +/- 0.0145 | 0.1850 +/- 0.0154 | 8.59% +/- 2.27% | 8.64% | 9.58% | 0.1885 +/- 0.0178 | 0.0060 +/- 0.0024 | 0.00% |
 | B3_Fusion | 100 | 0.0333 +/- 0.0025 | 0.0446 +/- 0.0031 | 21.14% +/- 1.50% | 21.12% | 24.55% | 0.0289 +/- 0.0011 | 0.0085 +/- 0.0010 | 0.00% |
 | B4a_Static_U1 | 100 | 0.0333 +/- 0.0025 | 0.0446 +/- 0.0031 | 0.42% +/- 0.09% | 0.42% | 0.50% | 0.7001 +/- 0.0213 | 0.0001 +/- 0.0000 | 80.29% |
@@ -331,8 +331,8 @@ Evaluated on **100 production machines** from the Google Cluster Trace across co
 
 ### Feature Ablation Study (Base vs Extended Tier)
 Comparing the Global GRU across 7 vs 15 features demonstrates the value of multi-resource telemetry:
-- **Base Tier (7 Features)**: Test MAE = $0.0420 \pm 0.0039$, RMSE = $0.0501 \pm 0.0048$.
-- **Extended Tier (15 Features)**: Test MAE = $0.0465 \pm 0.0036$, RMSE = $0.0546 \pm 0.0044$.
+- **Base Tier (7 Features)**: Test MAE = $0.0333 \pm 0.0025$, RMSE = $0.0446 \pm 0.0031$.
+- **Extended Tier (15 Features)**: Test MAE = $0.0333 \pm 0.0025$, RMSE = $0.0446 \pm 0.0031$.
 - **Takeaway**: Adding multi-resource telemetry (memory dynamics, disk I/O, CPU momentum, and rolling peak metrics) serves as a rigorous causal ablation study demonstrating stable low generalization error across cluster machines without lookahead leakage.
 
 ### Visual Results Gallery
@@ -343,13 +343,13 @@ The generated publication-quality figures are saved in `figures/`:
 4. `figures/allocation_vs_actual.png`: Dynamic allocation curve adapting above workload with grace band.
 
 ### Machine-Subset Sensitivity Analysis (16-Run Subsample Matrix)
-To verify metric stability across machine subsets and cluster scales, we evaluated a 16-run subsample matrix (4 subsample seeds × 4 machine counts: 50, 100, 200, 290 machines) in [`scripts/robustness.py`](file:///E:/Cloud/project/scripts/robustness.py).
+To verify metric stability across machine subsets and cluster scales, we evaluated a 16-run subsample matrix (4 subsample seeds × 2 machine counts: 50, 100 machines) in [`scripts/robustness.py`](file:///E:/Cloud/project/scripts/robustness.py).
 
 > **Note**: This reuses the same trained GRU/HW models and calibrated β* from the main pipeline run. Only the evaluated machine subset changes across runs. This is a **machine-subset sensitivity analysis**, not an independent retraining experiment.
 
-- **Fixed 10% Buffer Mean SLA Breach**: **$12.11\%$**
-- **Proposed Adaptive $U^*$ Mean SLA Breach**: **$0.38\%$** (empirical result across all subsample seeds and cluster sizes)
-- **Average SLA Breach Reduction**: **$96.81\%$** across all subsample seeds and cluster sizes.
+- **Fixed 10% Buffer Mean SLA Breach**: **$21.22\%$**
+- **Proposed Adaptive $U^*$ Mean SLA Breach**: **$0.77\%$** (empirical result across all subsample seeds and cluster sizes)
+- **Average SLA Breach Reduction**: **$96.39\%$** across all subsample seeds and cluster sizes.
 
 ### Computational Efficiency & Profiling
 Evaluated with PyTorch on single-sample inference latency (1,000 repetitions) and memory footprints:

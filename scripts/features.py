@@ -41,8 +41,9 @@ def extract_features_single_machine(df_m: pd.DataFrame) -> pd.DataFrame:
     Returns: DataFrame containing both base and extended feature sets.
     """
     df = df_m.copy()
-    # Causally forward-fill intermittent telemetry dropouts (e.g. sparse disk measurements)
-    for col in ['cpu', 'mem', 'disk']:
+    # Causally forward-fill intermittent telemetry counters (disk and mem dropouts only)
+    # CPU missing periods (gaps > 2) MUST strictly remain NaN per project specification
+    for col in ['mem', 'disk']:
         if col in df.columns:
             df[col] = df[col].ffill().fillna(0.0)
 

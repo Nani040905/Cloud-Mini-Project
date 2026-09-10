@@ -1,9 +1,9 @@
 # PROJECT_SPEC.md
 # Uncertainty-Aware Hybrid Resource Allocation Framework
-# Source of Truth — Spec Frozen v2.5
+# Source of Truth — Spec Frozen v2.6
 
 ## 1. Hardware & Environment
-- Target GPU: NVIDIA GeForce RTX 2050 (4 GB VRAM) — CUDA enabled
+- Target GPU: NVIDIA GeForce RTX 2050 (4 GB VRAM) — CUDA enabled (CPU fallback verified)
 - Seed: 42 (fixed globally across all operations)
 - Workspace: E:/Cloud/project/
 - Data root: E:/Cloud/project/data/
@@ -17,7 +17,7 @@
   - Variance: std > 0.01 (non-flat workload)
 - Selected machine IDs saved to `data/selected_machines.json` before modeling
 
-## 3. CPU Aggregation
+## 3. CPU Aggregation & Missing-Data Policy
 - Temporal Bins: 5-minute fixed bins
 - Aggregation Method: Time-weighted interval overlap
   - Task usage records overlap bins proportionally to overlap duration
@@ -26,7 +26,7 @@
 - Zero CPU: Valid observation (machine observed idle)
 - Missing Bins: NaN (no task records during interval)
 - Gap Filling: Linear interpolation for <= 2 consecutive NaNs
-- Long Gaps: Remain NaN (unfilled)
+- Long Gaps: Remain NaN (strictly preserved; NEVER forward-filled in feature extraction; sequence generators omit windows containing NaNs)
 - Machine Discard: Discard if > 20% NaN after gap filling
 
 ## 4. Per-Machine Temporal Isolation Rule (MANDATORY)
@@ -87,7 +87,7 @@ ALL temporal operations are performed independently within each machine:
   - Hidden: 32 units, 1 layer
   - Dropout: Explicit post-GRU nn.Dropout(p=0.2) applied to hidden state
   - Output: Linear + Sigmoid -> guarantees output in (0, 1)
-  - Training: Adam (lr=1e-3), ReduceLROnPlateau, MSELoss, batch_size=32, shuffle=False
+  - Training: Adam (lr=1e-3), ReduceLROnPlateau, MSELoss, batch_size=256, shuffle=False
 - **Holt-Winters (Per Machine)**:
   - Additive trend, additive seasonal
   - Seasonality: m in {48, 144, 288}, tuned on validation MAE
@@ -95,6 +95,7 @@ ALL temporal operations are performed independently within each machine:
 - **Forecast Fusion**:
   - ŷ_t = α_f * ŷ_HW + (1 - α_f) * ŷ_GRU
   - α_f in {0.0, 0.1, ..., 1.0}, selected by validation MAE
+  - Note: If α_f = 0.0 (GRU strictly dominates), point forecast is pure GRU, and HW serves as epistemic disagreement source U1
 
 ## 9. Uncertainty Signals
 - **U1 (Model Disagreement)**:
@@ -127,13 +128,14 @@ ALL temporal operations are performed independently within each machine:
 ## 12. Baselines & Benchmark Configurations
 - B0: Naive (y_{t-1}) + Fixed 10% relative buffer (A = clip(ŷ * 1.10, 0, 1))
 - B0b: Seasonal Naive (y_{t-288}) + Fixed 10% relative buffer
+- B0c: Moving Average (w=6, 30-min trailing) + Fixed 10% relative buffer
 - B1: GRU only (base 7-features) + Fixed 10% relative buffer
 - B2: HW only + Fixed 10% relative buffer
 - B3: Fusion (base) + Fixed 10% relative buffer
 - B4a: Fusion + U1 always + β-tuned buffer
-- B4b: Fusion + U2 always + β-tuned buffer
+- B4b: Fusion + U2 always + β-tuned buffer [Causal EWMA baseline]
 - B4c: Fusion + U3 always + β-tuned buffer
-- Proposed (P_base): Fusion (base 7-features) + Adaptive U* + β-tuned buffer [Locked Base]
+- Proposed (P_base): Fusion (base 7-features) + Adaptive U* + β-tuned buffer [Dynamic Selector]
 - Proposed (P_ext): Fusion (extended 15-features) + Adaptive U* + β-tuned buffer [Ablation Study]
 
 ## 13. Evaluation Metrics

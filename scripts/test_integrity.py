@@ -156,6 +156,21 @@ class TestExperimentalIntegrity(unittest.TestCase):
         # Check rho values are computed (not all zero)
         self.assertTrue(len(res['chosen_signal']) == n_test)
 
+    def test_06_cpu_missing_gaps_preserved_as_nan(self):
+        """F12: Verify that CPU missing periods (>2 bins) remain strictly NaN in feature extraction."""
+        df_with_nan = self.synth_df.copy()
+        # Create a 5-bin missing gap in CPU (bins 10 to 14)
+        df_with_nan.loc[10:14, 'cpu'] = np.nan
+        # Intermittent missing in disk
+        df_with_nan.loc[12:13, 'disk'] = np.nan
+
+        feat_df = extract_features_single_machine(df_with_nan)
+
+        # Assert CPU NaNs are preserved exactly (NOT forward-filled)
+        self.assertTrue(feat_df.loc[10:14, 'cpu'].isna().all(), "CPU gaps must strictly remain NaN.")
+        # Assert disk NaNs were causally forward-filled per specification
+        self.assertFalse(feat_df.loc[12:13, 'disk'].isna().any(), "Disk dropouts should be forward-filled.")
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
