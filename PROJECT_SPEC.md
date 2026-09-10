@@ -1,6 +1,6 @@
 # PROJECT_SPEC.md
 # Uncertainty-Aware Hybrid Resource Allocation Framework
-# Source of Truth — Spec Frozen v2.4
+# Source of Truth — Spec Frozen v2.5
 
 ## 1. Hardware & Environment
 - Target GPU: NVIDIA GeForce RTX 2050 (4 GB VRAM) — CUDA enabled
