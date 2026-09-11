@@ -589,7 +589,9 @@ def menu_step_13_evaluation():
 def menu_step_14_figures():
     from figures import (
         plot_prediction_comparison, plot_uncertainty_signals,
-        plot_selector_choices, plot_allocation_vs_actual, plot_data_validation
+        plot_selector_choices, plot_allocation_vs_actual, plot_data_validation,
+        plot_allocation_vs_actual_multi, plot_prediction_comparison_multi,
+        DEFAULT_PANEL_MACHINES
     )
 
     fusion_path = os.path.join(MODELS_DIR, "fusion_predictions.csv")
@@ -599,21 +601,28 @@ def menu_step_14_figures():
     while True:
         clear_screen()
         print_banner("Step 14: Interactive Publication Figure Generator & Time-Period Viewer")
-        print(" [1] Generate ALL Default Figures (Saved to figures/*.png)")
+        print(" Representative Machine Archetypes:")
+        print("   - 418695     : Moderate Workload (Mean CPU ~27%, Max ~48%) [Default]")
+        print("   - 1270871    : Bursty / Diurnal Dynamics (Mean CPU ~20%, Max ~48%)")
+        print("   - 4820274279 : High Volatility / Heavy Load (Mean CPU ~52%, Max ~87%)")
+        print("   - 2062873875 : Stable Low-Load Server (Mean CPU ~12%, Max ~28%)")
+        print("-" * 80)
+        print(" [1] Generate ALL Default Figures (Single-Machine + Multi-Machine Panels)")
         print(" [2] Interactive Forecast Comparison (Actual vs HW vs GRU vs Fused)")
         print(" [3] Interactive Uncertainty Signals & Error (U1, U2, U3 vs |Error|)")
         print(" [4] Interactive Risk-Aware Allocation vs Actual (Capacity + Grace Zone)")
-        print(" [5] Interactive Selector Winning Signal Distribution Plot")
-        print(" [6] Interactive Data Gate Inspection Plot (4 Machines)")
+        print(" [5] Multi-Machine 4-Panel Grid (Allocation & Predictions Across 4 Archetypes)")
+        print(" [6] Interactive Selector Winning Signal Distribution Plot")
+        print(" [7] Interactive Data Gate Inspection Plot (4 Machines)")
         print(" [B] Back to Main Menu")
         print("-" * 80)
-        choice = input("Select an option (1-6, B): ").strip().upper()
+        choice = input("Select an option (1-7, B): ").strip().upper()
 
         if choice == '1':
             run_script("figures.py", desc="Generating all default publication figures")
             pause()
         elif choice == '2':
-            m_in = input("Enter Machine ID (or leave blank for default): ").strip()
+            m_in = input("Enter Machine ID (default 418695, or choose e.g. 1270871, 4820274279, 2062873875): ").strip()
             mid = int(m_in) if m_in.isdigit() else None
             sp = input("Enter Split (test/val, default test): ").strip().lower() or "test"
             print("\nTime Window Presets:")
@@ -632,12 +641,12 @@ def menu_step_14_figures():
                 sb = int(input("  Start bin index (e.g. 100): ").strip() or "0")
                 eb = int(input("  End bin index   (e.g. 500): ").strip() or "500")
 
-            out_f = os.path.join(FIGURES_DIR, f"prediction_comparison_{mid or 'default'}_{sb or 0}_{eb or 'end'}.png")
+            out_f = os.path.join(FIGURES_DIR, f"prediction_comparison_{mid or '418695'}_{sb or 0}_{eb or 'end'}.png")
             plot_prediction_comparison(fusion_path, out_f, machine_id=mid, start_bin=sb, end_bin=eb, split=sp)
             print(f"\n[Generated] Saved to: {out_f}")
             pause()
         elif choice == '3':
-            m_in = input("Enter Machine ID (or leave blank for default): ").strip()
+            m_in = input("Enter Machine ID (default 418695, or choose e.g. 1270871, 4820274279, 2062873875): ").strip()
             mid = int(m_in) if m_in.isdigit() else None
             sp = input("Enter Split (test/val, default test): ").strip().lower() or "test"
             sb_in = input("Start bin (optional, default 0): ").strip()
@@ -645,12 +654,12 @@ def menu_step_14_figures():
             sb = int(sb_in) if sb_in.isdigit() else None
             eb = int(eb_in) if eb_in.isdigit() else None
 
-            out_f = os.path.join(FIGURES_DIR, f"uncertainty_signals_{mid or 'default'}_{sb or 0}_{eb or 'end'}.png")
+            out_f = os.path.join(FIGURES_DIR, f"uncertainty_signals_{mid or '418695'}_{sb or 0}_{eb or 'end'}.png")
             plot_uncertainty_signals(uncertainty_path, out_f, machine_id=mid, start_bin=sb, end_bin=eb, split=sp)
             print(f"\n[Generated] Saved to: {out_f}")
             pause()
         elif choice == '4':
-            m_in = input("Enter Machine ID (or leave blank for default): ").strip()
+            m_in = input("Enter Machine ID (default 418695, or choose e.g. 1270871, 4820274279, 2062873875): ").strip()
             mid = int(m_in) if m_in.isdigit() else None
             beta_in = input("Buffer multiplier beta (default calibrated beta*): ").strip()
             beta = float(beta_in) if beta_in else None
@@ -660,11 +669,25 @@ def menu_step_14_figures():
             sb = int(sb_in) if sb_in.isdigit() else None
             eb = int(eb_in) if eb_in.isdigit() else None
 
-            out_f = os.path.join(FIGURES_DIR, f"allocation_{mid or 'default'}_beta{beta or 'calibrated'}.png")
+            out_f = os.path.join(FIGURES_DIR, f"allocation_{mid or '418695'}_beta{beta or 'calibrated'}.png")
             plot_allocation_vs_actual(selector_path, out_f, beta=beta, machine_id=mid, start_bin=sb, end_bin=eb, split=sp)
             print(f"\n[Generated] Saved to: {out_f}")
             pause()
         elif choice == '5':
+            print(f"\nDefault Panel Machines: {DEFAULT_PANEL_MACHINES}")
+            m_in = input("Enter 4 comma-separated Machine IDs (or press Enter for default 4 archetypes): ").strip()
+            mids = [int(x.strip()) for x in m_in.split(',') if x.strip().isdigit()] if m_in else DEFAULT_PANEL_MACHINES
+            sp = input("Enter Split (test/val, default test): ").strip().lower() or "test"
+            beta_in = input("Buffer multiplier beta (default calibrated beta*): ").strip()
+            beta = float(beta_in) if beta_in else None
+
+            out_alloc = os.path.join(FIGURES_DIR, "allocation_vs_actual_multi.png")
+            out_pred = os.path.join(FIGURES_DIR, "prediction_comparison_multi.png")
+            plot_allocation_vs_actual_multi(selector_path, out_alloc, machine_ids=mids, beta=beta, split=sp)
+            plot_prediction_comparison_multi(fusion_path, out_pred, machine_ids=mids, split=sp)
+            print(f"\n[Generated] Saved 2x2 multi-panel plots:\n  {out_alloc}\n  {out_pred}")
+            pause()
+        elif choice == '6':
             sp = input("Enter Split (test/val, default test): ").strip().lower() or "test"
             m_in = input("Machine ID (optional, leave blank for cluster-wide): ").strip()
             mid = int(m_in) if m_in.isdigit() else None
@@ -672,7 +695,7 @@ def menu_step_14_figures():
             plot_selector_choices(selector_path, out_f, split=sp, machine_id=mid)
             print(f"\n[Generated] Saved to: {out_f}")
             pause()
-        elif choice == '6':
+        elif choice == '7':
             out_f = os.path.join(FIGURES_DIR, "data_validation_custom.png")
             plot_data_validation(output_path=out_f)
             print(f"\n[Generated] Saved to: {out_f}")

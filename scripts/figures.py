@@ -10,6 +10,7 @@ Generates:
 """
 
 import os
+import json
 import argparse
 import numpy as np
 import pandas as pd
@@ -19,6 +20,13 @@ from utils import (
     GRACE_BAND, FIGURES_DIR, MODELS_DIR, UNCERTAINTY_DIR,
     SERIES_DIR, SELECTED_MACHINES_PATH, RESULTS_DIR
 )
+
+# Representative machines spanning diverse workload regimes:
+# 418695: Moderate workload (mean CPU ~27%)
+# 1270871: Bursty diurnal dynamics (mean CPU ~20%)
+# 4820274279: High-utilization volatile server (mean CPU ~52%, max ~87%)
+# 2062873875: Low-utilization stable baseline (mean CPU ~12%)
+DEFAULT_PANEL_MACHINES = [418695, 1270871, 4820274279, 2062873875]
 
 
 def _get_default_beta() -> float:
@@ -255,22 +263,135 @@ def plot_data_validation(series_dir: str = SERIES_DIR, selected_json: str = SELE
     print(f"Saved: {output_path}")
 
 
+def plot_allocation_vs_actual_multi(selector_log_path: str, output_path: str,
+                                    machine_ids: list = None, beta: float = None,
+                                    start_bin: int = None, end_bin: int = None,
+                                    split: str = 'test'):
+    """Plot Allocation vs Actual CPU across 4 representative machines in a 2x2 grid."""
+    df = pd.read_csv(selector_log_path)
+    sub_df = df[df['split'] == split] if 'split' in df.columns else df
+    if sub_df.empty:
+        return
+
+    eff_beta = beta if beta is not None else _get_default_beta()
+    mids = machine_ids if machine_ids else DEFAULT_PANEL_MACHINES
+    available_mids = [m for m in mids if m in sub_df['machine_id'].values][:4]
+    if not available_mids:
+        return
+
+    fig, axes = plt.subplots(2, 2, figsize=(15, 8.5), sharex=False)
+    axes = axes.flatten()
+
+    for idx, mid in enumerate(available_mids):
+        ax = axes[idx]
+        m_data = sub_df[sub_df['machine_id'] == mid].sort_values('bin_idx')
+        total_pts = len(m_data)
+        s_idx = max(0, start_bin) if start_bin is not None else 0
+        e_idx = min(total_pts, end_bin) if end_bin is not None else total_pts
+        sliced = m_data.iloc[s_idx:e_idx]
+
+        y_true = sliced['y_true'].values
+        fused = sliced['fused_pred'].values
+        u_star = sliced['U_star'].values
+        alloc = np.clip(fused + eff_beta * u_star, 0.0, 1.0)
+        grace = alloc + GRACE_BAND
+        bins = np.arange(s_idx, s_idx + len(sliced))
+
+        ax.plot(bins, y_true, 'k-', lw=1.5, label='Actual CPU', zorder=3)
+        ax.plot(bins, alloc, 'b-', lw=1.3, label=f'Allocation (beta={eff_beta:.1f})', zorder=2)
+        ax.plot(bins, grace, 'b--', lw=0.8, alpha=0.6, label='Grace (+0.005)', zorder=2)
+        ax.fill_between(bins, alloc, grace, color='blue', alpha=0.1, label='Grace Zone')
+        ax.fill_between(bins, y_true, alloc, where=(y_true > alloc), color='red', alpha=0.35, label='SLA Overshoot')
+
+        ax.set_title(f"Machine {mid} (Mean CPU: {y_true.mean():.2f}, Max: {y_true.max():.2f})", fontsize=11, fontweight='bold')
+        ax.set_ylabel("Capacity [0, 1]", fontsize=9)
+        ax.set_xlabel(f"{split.title()} Bins (5-min intervals)", fontsize=9)
+        ax.set_ylim(0, max(0.5, max(alloc.max(), y_true.max()) + 0.08))
+        ax.grid(True, alpha=0.3)
+        if idx == 0:
+            ax.legend(loc='upper right', fontsize=8, frameon=True)
+
+    win_desc = f" (Bins {start_bin}:{end_bin})" if (start_bin is not None or end_bin is not None) else ""
+    fig.suptitle(f"Multi-Machine Risk-Aware Resource Allocation vs Workload [{split.upper()}{win_desc}]",
+                 fontsize=13, fontweight='bold', y=0.995)
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    plt.savefig(output_path, dpi=200)
+    plt.close()
+    print(f"Saved: {output_path}")
+
+
+def plot_prediction_comparison_multi(fusion_preds_path: str, output_path: str,
+                                     machine_ids: list = None, start_bin: int = None,
+                                     end_bin: int = None, split: str = 'test'):
+    """Plot Actual vs HW vs GRU vs Fused predictions across 4 representative machines in a 2x2 grid."""
+    df = pd.read_csv(fusion_preds_path)
+    sub_df = df[df['split'] == split] if 'split' in df.columns else df
+    if sub_df.empty:
+        return
+
+    mids = machine_ids if machine_ids else DEFAULT_PANEL_MACHINES
+    available_mids = [m for m in mids if m in sub_df['machine_id'].values][:4]
+    if not available_mids:
+        return
+
+    fig, axes = plt.subplots(2, 2, figsize=(15, 8.5), sharex=False)
+    axes = axes.flatten()
+
+    for idx, mid in enumerate(available_mids):
+        ax = axes[idx]
+        m_data = sub_df[sub_df['machine_id'] == mid].sort_values('bin_idx')
+        total_pts = len(m_data)
+        s_idx = max(0, start_bin) if start_bin is not None else 0
+        e_idx = min(total_pts, end_bin) if end_bin is not None else total_pts
+        sliced = m_data.iloc[s_idx:e_idx]
+        bins = np.arange(s_idx, s_idx + len(sliced))
+
+        mae = float(np.mean(np.abs(sliced['y_true'] - sliced['fused_pred'])))
+        ax.plot(bins, sliced['y_true'], 'k-', lw=1.5, label='Actual CPU', alpha=0.9)
+        ax.plot(bins, sliced['hw_pred'], 'b--', lw=1.1, label='Holt-Winters', alpha=0.7)
+        ax.plot(bins, sliced['gru_pred'], 'g:', lw=1.3, label='Global GRU', alpha=0.8)
+        ax.plot(bins, sliced['fused_pred'], 'r-', lw=1.3, label='Fused', alpha=0.9)
+
+        ax.set_title(f"Machine {mid} (MAE: {mae:.4f})", fontsize=11, fontweight='bold')
+        ax.set_ylabel("CPU Utilization [0, 1]", fontsize=9)
+        ax.set_xlabel(f"{split.title()} Bins (5-min intervals)", fontsize=9)
+        ax.set_ylim(0, max(0.5, sliced['y_true'].max() + 0.1))
+        ax.grid(True, alpha=0.3)
+        if idx == 0:
+            ax.legend(loc='upper right', fontsize=8, frameon=True)
+
+    win_desc = f" (Bins {start_bin}:{end_bin})" if (start_bin is not None or end_bin is not None) else ""
+    fig.suptitle(f"Multi-Machine Workload Forecasting Comparison [{split.upper()}{win_desc}]",
+                 fontsize=13, fontweight='bold', y=0.995)
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    plt.savefig(output_path, dpi=200)
+    plt.close()
+    print(f"Saved: {output_path}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Generate publication-ready figures")
     parser.add_argument("--figures_dir", type=str, default=FIGURES_DIR)
     parser.add_argument("--models_dir", type=str, default=MODELS_DIR)
     parser.add_argument("--uncertainty_dir", type=str, default=UNCERTAINTY_DIR)
     parser.add_argument("--machine_id", type=int, default=None)
+    parser.add_argument("--machine_ids", type=str, default=None, help="Comma-separated list of machine IDs for multi-panels")
     parser.add_argument("--start_bin", type=int, default=None)
     parser.add_argument("--end_bin", type=int, default=None)
     parser.add_argument("--split", type=str, default='test')
     parser.add_argument("--beta", type=float, default=None)
+    parser.add_argument("--multi", action="store_true", default=True, help="Also generate multi-machine 4-panel comparison plots")
     args = parser.parse_args()
+
+    mids_list = [int(m.strip()) for m in args.machine_ids.split(',')] if args.machine_ids else DEFAULT_PANEL_MACHINES
 
     fusion_path = os.path.join(args.models_dir, "fusion_predictions.csv")
     uncertainty_path = os.path.join(args.uncertainty_dir, "uncertainty.csv")
     selector_path = os.path.join(args.uncertainty_dir, "selector_log.csv")
 
+    # Single-machine high-resolution figures
     plot_prediction_comparison(
         fusion_path, os.path.join(args.figures_dir, "prediction_comparison.png"),
         machine_id=args.machine_id, start_bin=args.start_bin, end_bin=args.end_bin, split=args.split
@@ -287,6 +408,17 @@ def main():
         selector_path, os.path.join(args.figures_dir, "allocation_vs_actual.png"),
         beta=args.beta, machine_id=args.machine_id, start_bin=args.start_bin, end_bin=args.end_bin, split=args.split
     )
+
+    # Multi-machine panel figures
+    if args.multi:
+        plot_allocation_vs_actual_multi(
+            selector_path, os.path.join(args.figures_dir, "allocation_vs_actual_multi.png"),
+            machine_ids=mids_list, beta=args.beta, start_bin=args.start_bin, end_bin=args.end_bin, split=args.split
+        )
+        plot_prediction_comparison_multi(
+            fusion_path, os.path.join(args.figures_dir, "prediction_comparison_multi.png"),
+            machine_ids=mids_list, start_bin=args.start_bin, end_bin=args.end_bin, split=args.split
+        )
 
 
 if __name__ == "__main__":

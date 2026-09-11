@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Trace: Google Cluster](https://img.shields.io/badge/Workload-Google%20Cluster%20Data-brightgreen.svg)](https://github.com/google/cluster-data)
 
-> **Empirical Result**: Traditional heuristic over-provisioning (+10% buffer) suffers a **23.31% SLA breach rate** on Google cluster workloads. Our proposed framework integrates **Convex Hybrid Forecasting** with **Dynamic Multi-Source Uncertainty Arbitration**, achieving an SLA breach reduction to **0.38%** (a 61× reduction vs naive heuristics, strictly compliant with the $\le 1.0\%$ cloud SLA budget / **99% SLA compliance**) with near-zero under-provisioning shortfall.
+> **Empirical Result**: Traditional heuristic over-provisioning (+10% buffer) suffers a **20.77% to 31.48% SLA breach rate** on Google cluster workloads. Our proposed framework integrates **Convex Hybrid Forecasting** with **Dynamic Multi-Source Uncertainty Arbitration**, achieving an SLA breach reduction to **0.75%** (a 28× to 42× reduction vs naive heuristics, strictly compliant with the $\le 1.0\%$ cloud SLA budget / **99% SLA compliance**) with near-zero under-provisioning shortfall.
 
 ---
 
@@ -22,6 +22,7 @@
 4. [How to Run the Code](#4-how-to-run-the-code)
    - [Prerequisites & Environment Setup](#prerequisites--environment-setup)
    - [Single-Command Execution](#single-command-execution)
+   - [Interactive Menu Orchestrator (`main.py`)](#interactive-menu-orchestrator-mainpy)
    - [Modular Step-by-Step Execution](#modular-step-by-step-execution)
 5. [How to Explain This Project to Others](#5-how-to-explain-this-project-to-others)
    - [The 30-Second Elevator Pitch](#the-30-second-elevator-pitch)
@@ -29,9 +30,12 @@
    - [Slide-by-Slide Defense Structure](#slide-by-slide-defense-structure)
    - [Anticipated Viva & Interview Questions with Model Answers](#anticipated-viva--interview-questions-with-model-answers)
 6. [Empirical Benchmark Results & Findings](#6-empirical-benchmark-results--findings)
-   - [Comprehensive 10-Configuration Comparison](#comprehensive-10-configuration-comparison)
+   - [Comprehensive 11-Configuration Comparison](#comprehensive-11-configuration-comparison)
    - [Feature Ablation Study (Base vs Extended Tier)](#feature-ablation-study-base-vs-extended-tier)
-   - [Visual Results Gallery](#visual-results-gallery)
+   - [Machine Selection Rationale & Multi-Machine Archetypes](#machine-selection-rationale--multi-machine-archetypes)
+   - [Visual Results Gallery (Single-Machine & Multi-Machine Panels)](#visual-results-gallery-single-machine--multi-machine-panels)
+   - [Machine-Subset Sensitivity Analysis (8-Run Subsample Matrix)](#machine-subset-sensitivity-analysis-8-run-subsample-matrix)
+   - [Computational Efficiency & Profiling](#computational-efficiency--profiling)
 7. [Repository Structure](#7-repository-structure)
 
 ---
@@ -194,10 +198,34 @@ python run_pipeline.py --all
 ```
 This executes all baseline models, trains the dual-tier GRUs, runs forecast fusion, computes uncertainty signals, performs adaptive reliability selection, calibrates safety buffers, and generates consolidated tables and publication figures.
 
+### Interactive Menu Orchestrator (`main.py`)
+For interactive exploration, custom time-window slicing, train/val/test ratio tuning, and multi-machine visualization, launch the unified orchestrator:
+```bash
+python main.py
+```
+This interactive terminal menu provides:
+- **Steps 1 through 14 Sub-Menus**: Ingest trace shards, inspect eligibility, extract features, adjust splits, evaluate baselines, train models, calibrate buffers, and consolidate metrics.
+- **Custom Train / Val / Test Split Tuner (Step 5)**: Dynamically reconfigure chronological split ratios (e.g. 70/15/15, 80/10/10) with automatic boundary validation and timestamp isolation.
+- **Custom Deep Learning Hyperparameters (Step 8)**: Train GRU models with custom hidden units, sequence lengths, learning rates, and epochs.
+- **Interactive Figure Viewer & Time-Period Slicing (Step 14)**:
+  - **Machine Selection**: Select any machine from the 100 benchmark machines (or pick from 4 representative workload archetypes: Moderate, Bursty, High-Volatility, Stable).
+  - **Time Windowing**: Zoom into specific time periods (Full Split, First 24 Hours, First 3 Days, or Custom `[start_bin, end_bin]` range).
+  - **Split Slicing**: Inspect test vs validation splits dynamically.
+  - **Multi-Machine Panels**: Generate 2x2 multi-panel plots (`allocation_vs_actual_multi.png`, `prediction_comparison_multi.png`).
+- **Quick Diagnostic Actions**:
+  - `[A]` Run master pipeline end-to-end.
+  - `[T]` Run full 20-test integrity & aggregation test suite (`test_integrity.py` + `test_aggregate.py`).
+  - `[S]` Execute 8-run machine-subset sensitivity sweep.
+  - `[P]` Profile computational latency and memory footprints.
+  - `[V]` View dataset provenance and commit hash metadata.
+
 ### Modular Step-by-Step Execution
 You can execute individual pipeline stages independently:
 
 ```bash
+# Step 0: Run integrity audit test suite (12/12 anti-leakage and mathematical tests)
+python scripts/test_integrity.py
+
 # Step 1: Run aggregation mathematical correctness tests (8/8 cases)
 python scripts/test_aggregate.py
 
@@ -238,7 +266,7 @@ python scripts/allocation.py
 # Step 13: Consolidate final results with per-machine 95% CIs
 python scripts/evaluate.py
 
-# Step 14: Generate publication-quality figures
+# Step 14: Generate publication-quality figures (single-machine & 2x2 multi-panels)
 python scripts/figures.py
 
 # Step 15: Run 8-run machine-subset sensitivity analysis across random seeds & machine counts
@@ -329,7 +357,7 @@ Evaluated on **100 production machines** from the Google Cluster Trace across co
 
 <!-- BENCHMARK_TABLE_END -->
 
-> **Empirical Finding on Static $U_2$ vs Adaptive $U^*$**: In the 100-machine evaluation, Static $U_2$ (B4b) achieves an SLA breach rate of $0.66\%$ with an over-provisioning mean of $0.1631$, demonstrating empirical Pareto-dominance over Adaptive $U^*$ ($0.73\%$ breach, $0.3055$ over-provisioning). We report this finding transparently rather than artificially engineering heuristics to override it: $U_2$ (aleatoric EWMA error tracking) is a remarkably strong single-signal baseline during stable trace periods, whereas Adaptive $U^*$ maintains dynamic multi-signal arbitration across heterogeneous regimes at the cost of modest over-allocation.
+> **Empirical Finding on Static $U_2$ vs Adaptive $U^*$**: In the 100-machine evaluation, Static $U_2$ (B4b) achieves an SLA breach rate of $0.66\%$ with an over-provisioning mean of $0.1631$, demonstrating empirical Pareto-dominance over Adaptive $U^*$ ($0.75\%$ breach, $0.3059$ over-provisioning). We report this finding transparently rather than artificially engineering heuristics to override it: $U_2$ (aleatoric EWMA error tracking) is a remarkably strong single-signal baseline during stable trace periods, whereas Adaptive $U^*$ maintains dynamic multi-signal arbitration across heterogeneous regimes at the cost of modest over-allocation.
 
 ### Feature Ablation Study (Base vs Extended Tier)
 Comparing the Global GRU across 7 vs 15 features demonstrates the value of multi-resource telemetry:
@@ -337,21 +365,52 @@ Comparing the Global GRU across 7 vs 15 features demonstrates the value of multi
 - **Extended Tier (15 Features)**: Test MAE = $0.0333 \pm 0.0025$, RMSE = $0.0446 \pm 0.0031$.
 - **Takeaway**: Adding multi-resource telemetry (memory dynamics, causal lagged disk I/O, CPU momentum, and rolling peak metrics) serves as a rigorous causal ablation study demonstrating stable low generalization error across cluster machines without lookahead leakage.
 
-### Visual Results Gallery
+### Machine Selection Rationale & Multi-Machine Archetypes
+
+#### Why Did Default Figures Only Show Machine 418695?
+1. **High-Resolution Micro-Dynamics vs Visual Occlusion**:
+   - A single evaluation trace contains over **1,200 continuous 5-minute bins** (4+ days of live telemetry).
+   - If all 100 benchmark machines were plotted on the same 2D time-series canvas, the result would be a 100-line overlapping "hairball" (spaghetti plot), completely obscuring physical allocation dynamics, grace bands, forecast tracking, and SLA overshoots.
+   - Therefore, publication standards dictate displaying high-fidelity single-machine or small-panel visualizations to inspect temporal micro-dynamics, while reporting macro cluster-wide aggregate performance in consolidated tables.
+2. **Determinism of Default Machine 418695**:
+   - In `models/fusion_predictions.csv`, `uncertainty/uncertainty.csv`, and `uncertainty/selector_log.csv`, machine records are stored grouped and sorted by `machine_id`.
+   - Machine `418695` is the very first machine in the 100-machine benchmark dataset.
+   - Workload profile for Machine 418695: Moderate CPU demand (mean = 0.27, std = 0.10, peak = 0.48), representing a typical multi-tenant cloud workload.
+3. **Cluster-Wide Metrics Encompass All 100 Machines**:
+   - The master benchmark metrics (SLA breach rate = 0.75%, over-provisioning = 0.3059, MAE = 0.0333) and `figures/selector_choices.png` are evaluated across **all 100 machines** and **all 120,000+ timesteps**.
+
+#### Multi-Machine Comparison Panels (4 Diverse Workload Archetypes)
+To visually inspect how the framework behaves across diverse server workloads simultaneously, we provide 4-machine 2x2 comparison panels across 4 distinct operational archetypes:
+
+| Machine ID | Workload Archetype | Mean CPU | StdDev | Peak CPU | Characteristic Behavioral Regime |
+| :---: | :--- | :---: | :---: | :---: | :--- |
+| **418695** | **Moderate Workload** (Default) | 0.27 | 0.10 | 0.48 | Standard cloud microservice with diurnal oscillations and moderate bursts. |
+| **1270871** | **Bursty / Diurnal Regime Shifts** | 0.20 | 0.12 | 0.48 | Sharp step drops and cyclical utilization spikes testing adaptive buffer contraction. |
+| **4820274279** | **High Volatility & Heavy Load** | 0.52 | 0.15 | 0.87 | High-intensity computing node operating near hardware saturation limits. |
+| **2062873875** | **Stable Low-Load Baseline** | 0.12 | 0.06 | 0.28 | Quiescent background worker showing minimal over-allocation waste during calm periods. |
+
+### Visual Results Gallery (Single-Machine & Multi-Machine Panels)
 The generated publication-quality figures are saved in `figures/`:
-1. `figures/prediction_comparison.png`: Shows Actual vs Holt-Winters vs GRU vs Fused predictions over time.
-2. `figures/uncertainty_signals.png`: Traces $U_1, U_2, U_3$ against actual forecast error spikes.
-3. `figures/selector_choices.png`: Distribution of winning signals selected across cluster machines.
-4. `figures/allocation_vs_actual.png`: Dynamic allocation curve adapting above workload with grace band.
+1. `figures/allocation_vs_actual.png`: High-resolution single-machine allocation curve adapting above workload with grace band and physical $[0, 1]$ clipping (default Machine 418695).
+2. `figures/allocation_vs_actual_multi.png`: **2x2 Multi-Machine Panel** showing allocation, grace band, and SLA overshoots across all 4 workload archetypes side-by-side.
+3. `figures/prediction_comparison.png`: Actual vs Holt-Winters vs GRU vs Fused predictions over time (default Machine 418695).
+4. `figures/prediction_comparison_multi.png`: **2x2 Multi-Machine Panel** comparing point forecast tracking across all 4 workload archetypes side-by-side.
+5. `figures/uncertainty_signals.png`: Traces $U_1, U_2, U_3$ against actual forecast error spikes over time.
+6. `figures/selector_choices.png`: Distribution of winning signals selected across all 100 machines (120,000+ timesteps).
+7. `figures/data_validation.png`: Visual data gate inspection check across 4 candidate machines over 5-minute aggregate bins.
+
+> **How to View Any Machine**: You can plot ANY machine out of the 100 benchmark machines or customize the time window using:
+> - Interactive UI: `python main.py` $\rightarrow$ Option `[14]` (Step 14: Interactive Figure Generator)
+> - CLI Command: `python scripts/figures.py --machine_id 4820274279 --start_bin 0 --end_bin 288 --split test`
 
 ### Machine-Subset Sensitivity Analysis (8-Run Subsample Matrix)
 To verify metric stability across machine subsets and cluster scales, we evaluated an 8-run subsample matrix (4 subsample seeds × 2 machine counts: 50, 100 machines) in [`scripts/robustness.py`](file:///E:/Cloud/project/scripts/robustness.py).
 
 > **Note**: This reuses the same trained GRU/HW models and calibrated $\beta^*$ from the main pipeline run. Only the evaluated machine subset changes across runs. This is a **machine-subset sensitivity analysis**, not an independent retraining experiment. True multi-seed retraining across model initializations belongs to Phase 2.
 
-- **Fixed 10% Buffer Mean SLA Breach**: **$21.22\%$**
-- **Proposed Adaptive $U^*$ Mean SLA Breach**: **$0.77\%$** (empirical result across all subsample seeds and cluster sizes)
-- **Average SLA Breach Reduction**: **$96.39\%$** across all subsample seeds and cluster sizes.
+- **Fixed 10% Buffer Mean SLA Breach**: **$21.33\%$**
+- **Proposed Adaptive $U^*$ Mean SLA Breach**: **$0.82\%$** (empirical result across all subsample seeds and cluster sizes)
+- **Average SLA Breach Reduction**: **$96.16\%$** across all subsample seeds and cluster sizes.
 
 ### Computational Efficiency & Profiling
 Evaluated with PyTorch on single-sample inference latency (1,000 repetitions) and memory footprints:
@@ -376,6 +435,7 @@ Evaluated with PyTorch on single-sample inference latency (1,000 repetitions) an
 .
 ├── PROJECT_SPEC.md                      # Complete frozen mathematical specification (v2.5)
 ├── README.md                            # Comprehensive documentation and presentation guide
+├── main.py                              # Interactive CLI Orchestrator & time-window figure suite
 ├── run_pipeline.py                      # Master reproducibility runner with --profile support
 ├── data/
 │   ├── candidate_machines.json          # 300 sampled candidates (seed=42)
@@ -383,8 +443,9 @@ Evaluated with PyTorch on single-sample inference latency (1,000 repetitions) an
 │   └── processed/google/
 │       ├── dataset_coverage_report.txt  # Automated Data Gate dataset coverage report
 │       ├── aggregation_summary.csv      # Cluster-wide task metrics
-│       ├── filtered_parts/              # Filtered parquet shards (parts 0 to 5)
-│       ├── machine_series/              # 299 per-machine continuous 5-min series (101 bins)
+│       ├── split_info.json              # Train/Val/Test chronological split definitions
+│       ├── filtered_parts/              # Filtered parquet shards (parts 0 to 499)
+│       ├── machine_series/              # 100 per-machine continuous 5-min series (8,352 bins)
 │       └── features_base/               # Causal dual-tier feature matrices
 ├── models/                              # Trained PyTorch weights and prediction tables
 ├── uncertainty/                         # Multi-source uncertainty signals and selector log
@@ -392,10 +453,20 @@ Evaluated with PyTorch on single-sample inference latency (1,000 repetitions) an
 │   ├── final_results.csv                # Master benchmark metrics (with 95% CI)
 │   ├── final_results_detailed.csv       # Granular per-machine distribution statistics
 │   ├── computational_efficiency.csv     # Inference latencies, parameters, and memory
-│   └── robustness_results.csv           # 8-run robustness parameter sweep
+│   ├── robustness_results.csv           # 8-run robustness parameter sweep
+│   ├── run_config.json                  # Experiment run parameters and environment metadata
+│   └── data_provenance.json             # Git commit provenance hash and data lineage
 ├── figures/                             # Publication-ready visualization plots
+│   ├── allocation_vs_actual.png         # Single-machine high-resolution allocation (Machine 418695)
+│   ├── allocation_vs_actual_multi.png   # 2x2 Multi-machine allocation across 4 archetypes
+│   ├── prediction_comparison.png        # Single-machine forecast comparison (Machine 418695)
+│   ├── prediction_comparison_multi.png  # 2x2 Multi-machine forecast comparison across 4 archetypes
+│   ├── uncertainty_signals.png          # U1, U2, U3 signals vs absolute forecast error
+│   ├── selector_choices.png             # Cluster-wide winning signal distribution (100 machines)
+│   └── data_validation.png              # Data gate 4-machine visual telemetry check
 └── scripts/
     ├── utils.py                         # Shared constants, fast_spearman, compute_metrics
+    ├── test_integrity.py               # 12 formal anti-leakage and mathematical audit tests
     ├── test_aggregate.py                # Formal 8-case aggregation unit test suite
     ├── aggregate.py                     # Interval-weighted overlap aggregation & Data Gate
     ├── eligibility.py                   # Candidate machine audit and selection
@@ -410,7 +481,7 @@ Evaluated with PyTorch on single-sample inference latency (1,000 repetitions) an
     ├── evaluate.py                      # Master metric consolidation with 95% CIs
     ├── generate_readme_tables.py        # Automated Markdown table synchronization
     ├── robustness.py                    # 8-run parameter sweep across seeds and scale
-    └── figures.py                       # Publication plot generator
+    └── figures.py                       # Publication plot generator (single & multi-panel)
 ```
 
 ---
