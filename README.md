@@ -393,15 +393,19 @@ To visually inspect how the framework behaves across diverse server workloads si
 The generated publication-quality figures are saved in `figures/`:
 1. `figures/allocation_vs_actual.png`: High-resolution single-machine allocation curve adapting above workload with grace band and physical $[0, 1]$ clipping (default Machine 418695).
 2. `figures/allocation_vs_actual_multi.png`: **2x2 Multi-Machine Panel** showing allocation, grace band, and SLA overshoots across all 4 workload archetypes side-by-side.
-3. `figures/prediction_comparison.png`: Actual vs Holt-Winters vs GRU vs Fused predictions over time (default Machine 418695).
-4. `figures/prediction_comparison_multi.png`: **2x2 Multi-Machine Panel** comparing point forecast tracking across all 4 workload archetypes side-by-side.
-5. `figures/uncertainty_signals.png`: Traces $U_1, U_2, U_3$ against actual forecast error spikes over time.
-6. `figures/selector_choices.png`: Distribution of winning signals selected across all 100 machines (120,000+ timesteps).
-7. `figures/data_validation.png`: Visual data gate inspection check across 4 candidate machines over 5-minute aggregate bins.
+3. `figures/allocation_test_vs_random.png`: **Dual Comparison Panel** contrasting the canonical Test Machine (`418695`) with a randomly selected machine side-by-side.
+4. `figures/prediction_comparison.png`: Actual vs Holt-Winters vs GRU vs Fused predictions over time (default Machine 418695).
+5. `figures/prediction_comparison_multi.png`: **2x2 Multi-Machine Panel** comparing point forecast tracking across all 4 workload archetypes side-by-side.
+6. `figures/prediction_test_vs_random.png`: **Dual Forecast Comparison Panel** comparing predictions between Test Machine (`418695`) and a random machine.
+7. `figures/uncertainty_signals.png`: Traces $U_1, U_2, U_3$ against actual forecast error spikes over time.
+8. `figures/selector_choices.png`: Distribution of winning signals selected across all 100 machines (120,000+ timesteps).
+9. `figures/data_validation.png`: Visual data gate inspection check across 4 candidate machines over 5-minute aggregate bins.
 
-> **How to View Any Machine**: You can plot ANY machine out of the 100 benchmark machines or customize the time window using:
-> - Interactive UI: `python main.py` $\rightarrow$ Option `[14]` (Step 14: Interactive Figure Generator)
-> - CLI Command: `python scripts/figures.py --machine_id 4820274279 --start_bin 0 --end_bin 288 --split test`
+> **How to View Any Machine or Switch Between Test and Random**:
+> - **Interactive Menu**: Run `python main.py` $\rightarrow$ Option `[14]` (Step 14) $\rightarrow$ Option `[8]` for Switch-Case Dual Plots.
+> - **Random Machine Selection**: Run `python scripts/figures.py --random` to evaluate a randomly sampled cluster machine.
+> - **Explicit Dual Comparison**: Run `python scripts/figures.py --mode compare` (or `--seed 42`) to generate the stacked Test vs. Random panels.
+> - **Custom Machine Slice**: Run `python scripts/figures.py --machine_id 4820274279 --start_bin 0 --end_bin 288 --split test`.
 
 ### Machine-Subset Sensitivity Analysis (8-Run Subsample Matrix)
 To verify metric stability across machine subsets and cluster scales, we evaluated an 8-run subsample matrix (4 subsample seeds × 2 machine counts: 50, 100 machines) in [`scripts/robustness.py`](file:///E:/Cloud/project/scripts/robustness.py).
@@ -459,8 +463,10 @@ Evaluated with PyTorch on single-sample inference latency (1,000 repetitions) an
 ├── figures/                             # Publication-ready visualization plots
 │   ├── allocation_vs_actual.png         # Single-machine high-resolution allocation (Machine 418695)
 │   ├── allocation_vs_actual_multi.png   # 2x2 Multi-machine allocation across 4 archetypes
+│   ├── allocation_test_vs_random.png    # Dual comparison: Test Machine vs Random Machine
 │   ├── prediction_comparison.png        # Single-machine forecast comparison (Machine 418695)
 │   ├── prediction_comparison_multi.png  # 2x2 Multi-machine forecast comparison across 4 archetypes
+│   ├── prediction_test_vs_random.png    # Dual comparison: Test Machine vs Random Machine
 │   ├── uncertainty_signals.png          # U1, U2, U3 signals vs absolute forecast error
 │   ├── selector_choices.png             # Cluster-wide winning signal distribution (100 machines)
 │   └── data_validation.png              # Data gate 4-machine visual telemetry check

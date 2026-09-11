@@ -591,6 +591,7 @@ def menu_step_14_figures():
         plot_prediction_comparison, plot_uncertainty_signals,
         plot_selector_choices, plot_allocation_vs_actual, plot_data_validation,
         plot_allocation_vs_actual_multi, plot_prediction_comparison_multi,
+        plot_test_vs_random_allocation, plot_test_vs_random_prediction,
         DEFAULT_PANEL_MACHINES
     )
 
@@ -614,9 +615,10 @@ def menu_step_14_figures():
         print(" [5] Multi-Machine 4-Panel Grid (Allocation & Predictions Across 4 Archetypes)")
         print(" [6] Interactive Selector Winning Signal Distribution Plot")
         print(" [7] Interactive Data Gate Inspection Plot (4 Machines)")
+        print(" [8] Test Machine vs Random Machine Comparison (Switch-Case Dual Plots)")
         print(" [B] Back to Main Menu")
         print("-" * 80)
-        choice = input("Select an option (1-7, B): ").strip().upper()
+        choice = input("Select an option (1-8, B): ").strip().upper()
 
         if choice == '1':
             run_script("figures.py", desc="Generating all default publication figures")
@@ -699,6 +701,27 @@ def menu_step_14_figures():
             out_f = os.path.join(FIGURES_DIR, "data_validation_custom.png")
             plot_data_validation(output_path=out_f)
             print(f"\n[Generated] Saved to: {out_f}")
+            pause()
+        elif choice == '8':
+            print("\nSwitch-Case Options:")
+            print("  [1] Pick One Random Machine & Generate its Full Figure Suite")
+            print("  [2] Generate Dual Comparison Plots (Test Machine 418695 vs Random Machine)")
+            sub_c = input("Choose option (1-2, default 2): ").strip() or "2"
+            sp = input("Enter Split (test/val, default test): ").strip().lower() or "test"
+            beta_in = input("Buffer multiplier beta (default calibrated beta*): ").strip()
+            beta = float(beta_in) if beta_in else None
+            seed_in = input("Random seed (optional, press Enter for random): ").strip()
+            seed = int(seed_in) if seed_in.isdigit() else None
+
+            if sub_c == '1':
+                run_script("figures.py", ["--random", "--split", sp] + (["--seed", str(seed)] if seed else []),
+                           desc="Generating figures for randomly selected machine")
+            else:
+                out_alloc = os.path.join(FIGURES_DIR, "allocation_test_vs_random.png")
+                out_pred = os.path.join(FIGURES_DIR, "prediction_test_vs_random.png")
+                plot_test_vs_random_allocation(selector_path, out_alloc, beta=beta, split=sp, seed=seed)
+                plot_test_vs_random_prediction(fusion_path, out_pred, split=sp, seed=seed)
+                print(f"\n[Generated] Saved Dual Comparison Plots:\n  {out_alloc}\n  {out_pred}")
             pause()
         elif choice == 'B':
             break

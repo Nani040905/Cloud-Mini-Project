@@ -371,6 +371,160 @@ def plot_prediction_comparison_multi(fusion_preds_path: str, output_path: str,
     print(f"Saved: {output_path}")
 
 
+def get_switch_case_machines(df: pd.DataFrame, mode: str = "default",
+                             machine_id: int = None, seed: int = None):
+    """
+    Switch-case selection for evaluation machines:
+    - 'test' / 'fixed': Return canonical benchmark machine (418695 or specified machine_id)
+    - 'random': Return one randomly sampled machine from the available cluster machines
+    - 'compare' / 'both': Return a tuple (test_machine, random_machine) for dual comparison
+    """
+    unique_mids = sorted(df['machine_id'].unique().tolist())
+    default_test = machine_id if (machine_id is not None and machine_id in unique_mids) else 418695
+    if default_test not in unique_mids and len(unique_mids) > 0:
+        default_test = unique_mids[0]
+
+    rng = np.random.default_rng(seed)
+    candidates = [m for m in unique_mids if m != default_test]
+    random_machine = int(rng.choice(candidates)) if candidates else default_test
+
+    match mode.lower():
+        case "random":
+            selected = [random_machine]
+            desc = f"Random Machine ({random_machine})"
+        case "compare" | "both":
+            selected = [default_test, random_machine]
+            desc = f"Dual Comparison [Test Machine {default_test} vs Random Machine {random_machine}]"
+        case "test" | "fixed" | "default":
+            selected = [default_test]
+            desc = f"Canonical Test Machine ({default_test})"
+        case _:
+            selected = [default_test]
+            desc = f"Canonical Test Machine ({default_test})"
+
+    return selected, desc, default_test, random_machine
+
+
+def plot_test_vs_random_allocation(selector_log_path: str, output_path: str,
+                                   test_mid: int = 418695, random_mid: int = None,
+                                   beta: float = None, start_bin: int = None,
+                                   end_bin: int = None, split: str = 'test', seed: int = None):
+    """Plot dual allocation comparison of one fixed test machine and one randomly selected machine."""
+    df = pd.read_csv(selector_log_path)
+    sub_df = df[df['split'] == split] if 'split' in df.columns else df
+    if sub_df.empty:
+        return
+
+    unique_mids = sorted(sub_df['machine_id'].unique().tolist())
+    if test_mid not in unique_mids:
+        test_mid = unique_mids[0]
+
+    if random_mid is None or random_mid not in unique_mids:
+        rng = np.random.default_rng(seed)
+        pool = [m for m in unique_mids if m != test_mid]
+        random_mid = int(rng.choice(pool)) if pool else test_mid
+
+    eff_beta = beta if beta is not None else _get_default_beta()
+    pair = [("Test Machine (Canonical Benchmark)", test_mid),
+            (f"Random Machine (Sampled ID: {random_mid})", random_mid)]
+
+    fig, axes = plt.subplots(2, 1, figsize=(14, 7.5), sharex=True)
+
+    for idx, (label, mid) in enumerate(pair):
+        ax = axes[idx]
+        m_data = sub_df[sub_df['machine_id'] == mid].sort_values('bin_idx')
+        total_pts = len(m_data)
+        s_idx = max(0, start_bin) if start_bin is not None else 0
+        e_idx = min(total_pts, end_bin) if end_bin is not None else total_pts
+        sliced = m_data.iloc[s_idx:e_idx]
+
+        y_true = sliced['y_true'].values
+        fused = sliced['fused_pred'].values
+        u_star = sliced['U_star'].values
+        alloc = np.clip(fused + eff_beta * u_star, 0.0, 1.0)
+        grace = alloc + GRACE_BAND
+        bins = np.arange(s_idx, s_idx + len(sliced))
+
+        ax.plot(bins, y_true, 'k-', lw=1.5, label='Actual CPU', zorder=3)
+        ax.plot(bins, alloc, 'b-', lw=1.3, label=f'Allocation (beta={eff_beta:.1f})', zorder=2)
+        ax.plot(bins, grace, 'b--', lw=0.8, alpha=0.6, label='Grace (+0.005)', zorder=2)
+        ax.fill_between(bins, alloc, grace, color='blue', alpha=0.1, label='Grace Zone')
+        ax.fill_between(bins, y_true, alloc, where=(y_true > alloc), color='red', alpha=0.35, label='SLA Overshoot')
+
+        ax.set_title(f"{label} — Machine {mid} (Mean CPU: {y_true.mean():.2f}, Peak: {y_true.max():.2f})",
+                     fontsize=11, fontweight='bold')
+        ax.set_ylabel("Capacity [0, 1]", fontsize=9)
+        ax.set_ylim(0, max(0.5, max(alloc.max(), y_true.max()) + 0.08))
+        ax.grid(True, alpha=0.3)
+        ax.legend(loc='upper right', fontsize=8, frameon=True)
+
+    win_desc = f" (Bins {start_bin}:{end_bin})" if (start_bin is not None or end_bin is not None) else ""
+    axes[-1].set_xlabel(f"{split.title()} Bins (5-min intervals){win_desc}", fontsize=10)
+    fig.suptitle(f"Resource Allocation Dual Comparison: Test Machine {test_mid} vs Random Machine {random_mid}",
+                 fontsize=13, fontweight='bold', y=0.995)
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    plt.savefig(output_path, dpi=200)
+    plt.close()
+    print(f"Saved: {output_path}")
+
+
+def plot_test_vs_random_prediction(fusion_preds_path: str, output_path: str,
+                                   test_mid: int = 418695, random_mid: int = None,
+                                   start_bin: int = None, end_bin: int = None,
+                                   split: str = 'test', seed: int = None):
+    """Plot dual prediction comparison of one fixed test machine and one randomly selected machine."""
+    df = pd.read_csv(fusion_preds_path)
+    sub_df = df[df['split'] == split] if 'split' in df.columns else df
+    if sub_df.empty:
+        return
+
+    unique_mids = sorted(sub_df['machine_id'].unique().tolist())
+    if test_mid not in unique_mids:
+        test_mid = unique_mids[0]
+
+    if random_mid is None or random_mid not in unique_mids:
+        rng = np.random.default_rng(seed)
+        pool = [m for m in unique_mids if m != test_mid]
+        random_mid = int(rng.choice(pool)) if pool else test_mid
+
+    pair = [("Test Machine (Canonical Benchmark)", test_mid),
+            (f"Random Machine (Sampled ID: {random_mid})", random_mid)]
+
+    fig, axes = plt.subplots(2, 1, figsize=(14, 7.5), sharex=True)
+
+    for idx, (label, mid) in enumerate(pair):
+        ax = axes[idx]
+        m_data = sub_df[sub_df['machine_id'] == mid].sort_values('bin_idx')
+        total_pts = len(m_data)
+        s_idx = max(0, start_bin) if start_bin is not None else 0
+        e_idx = min(total_pts, end_bin) if end_bin is not None else total_pts
+        sliced = m_data.iloc[s_idx:e_idx]
+        bins = np.arange(s_idx, s_idx + len(sliced))
+
+        mae = float(np.mean(np.abs(sliced['y_true'] - sliced['fused_pred'])))
+        ax.plot(bins, sliced['y_true'], 'k-', lw=1.5, label='Actual CPU', alpha=0.9)
+        ax.plot(bins, sliced['hw_pred'], 'b--', lw=1.1, label='Holt-Winters', alpha=0.7)
+        ax.plot(bins, sliced['gru_pred'], 'g:', lw=1.3, label='Global GRU', alpha=0.8)
+        ax.plot(bins, sliced['fused_pred'], 'r-', lw=1.3, label='Fused', alpha=0.9)
+
+        ax.set_title(f"{label} — Machine {mid} (MAE: {mae:.4f})", fontsize=11, fontweight='bold')
+        ax.set_ylabel("CPU Utilization [0, 1]", fontsize=9)
+        ax.set_ylim(0, max(0.5, sliced['y_true'].max() + 0.1))
+        ax.grid(True, alpha=0.3)
+        ax.legend(loc='upper right', fontsize=8, frameon=True)
+
+    win_desc = f" (Bins {start_bin}:{end_bin})" if (start_bin is not None or end_bin is not None) else ""
+    axes[-1].set_xlabel(f"{split.title()} Bins (5-min intervals){win_desc}", fontsize=10)
+    fig.suptitle(f"Workload Forecast Dual Comparison: Test Machine {test_mid} vs Random Machine {random_mid}",
+                 fontsize=13, fontweight='bold', y=0.995)
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    plt.savefig(output_path, dpi=200)
+    plt.close()
+    print(f"Saved: {output_path}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Generate publication-ready figures")
     parser.add_argument("--figures_dir", type=str, default=FIGURES_DIR)
@@ -383,34 +537,60 @@ def main():
     parser.add_argument("--split", type=str, default='test')
     parser.add_argument("--beta", type=float, default=None)
     parser.add_argument("--multi", action="store_true", default=True, help="Also generate multi-machine 4-panel comparison plots")
+    parser.add_argument("--random", action="store_true", default=False, help="Pick a random machine from the dataset instead of default test machine")
+    parser.add_argument("--mode", type=str, default="default", choices=["default", "test", "random", "compare"],
+                        help="Machine evaluation mode: 'test' (fixed 418695), 'random' (random machine), or 'compare' (one test and one random machine)")
+    parser.add_argument("--seed", type=int, default=None, help="Random seed for random machine selection")
     args = parser.parse_args()
-
-    mids_list = [int(m.strip()) for m in args.machine_ids.split(',')] if args.machine_ids else DEFAULT_PANEL_MACHINES
 
     fusion_path = os.path.join(args.models_dir, "fusion_predictions.csv")
     uncertainty_path = os.path.join(args.uncertainty_dir, "uncertainty.csv")
     selector_path = os.path.join(args.uncertainty_dir, "selector_log.csv")
 
-    # Single-machine high-resolution figures
+    sel_df = pd.read_csv(selector_path)
+    eff_mode = "random" if args.random else args.mode
+
+    selected_mids, desc, test_mid, random_mid = get_switch_case_machines(
+        sel_df, mode=eff_mode, machine_id=args.machine_id, seed=args.seed
+    )
+    print(f"\n[Figures Switch-Case] Mode: '{eff_mode}' | {desc}")
+
+    # Primary target machine for single-machine plots:
+    # If mode is random, evaluate the random machine; otherwise use test_mid (418695 or custom)
+    target_mid = random_mid if eff_mode == "random" else test_mid
+
     plot_prediction_comparison(
         fusion_path, os.path.join(args.figures_dir, "prediction_comparison.png"),
-        machine_id=args.machine_id, start_bin=args.start_bin, end_bin=args.end_bin, split=args.split
+        machine_id=target_mid, start_bin=args.start_bin, end_bin=args.end_bin, split=args.split
     )
     plot_uncertainty_signals(
         uncertainty_path, os.path.join(args.figures_dir, "uncertainty_signals.png"),
-        machine_id=args.machine_id, start_bin=args.start_bin, end_bin=args.end_bin, split=args.split
+        machine_id=target_mid, start_bin=args.start_bin, end_bin=args.end_bin, split=args.split
     )
     plot_selector_choices(
         selector_path, os.path.join(args.figures_dir, "selector_choices.png"),
-        split=args.split, machine_id=args.machine_id
+        split=args.split, machine_id=target_mid if eff_mode == "random" else args.machine_id
     )
     plot_allocation_vs_actual(
         selector_path, os.path.join(args.figures_dir, "allocation_vs_actual.png"),
-        beta=args.beta, machine_id=args.machine_id, start_bin=args.start_bin, end_bin=args.end_bin, split=args.split
+        beta=args.beta, machine_id=target_mid, start_bin=args.start_bin, end_bin=args.end_bin, split=args.split
     )
 
-    # Multi-machine panel figures
+    # Dual Comparison: One Test Machine AND One Random Machine
+    plot_test_vs_random_allocation(
+        selector_path, os.path.join(args.figures_dir, "allocation_test_vs_random.png"),
+        test_mid=test_mid, random_mid=random_mid, beta=args.beta,
+        start_bin=args.start_bin, end_bin=args.end_bin, split=args.split, seed=args.seed
+    )
+    plot_test_vs_random_prediction(
+        fusion_path, os.path.join(args.figures_dir, "prediction_test_vs_random.png"),
+        test_mid=test_mid, random_mid=random_mid,
+        start_bin=args.start_bin, end_bin=args.end_bin, split=args.split, seed=args.seed
+    )
+
+    # Multi-machine 4-panel figures (across 4 operational archetypes)
     if args.multi:
+        mids_list = [int(m.strip()) for m in args.machine_ids.split(',')] if args.machine_ids else DEFAULT_PANEL_MACHINES
         plot_allocation_vs_actual_multi(
             selector_path, os.path.join(args.figures_dir, "allocation_vs_actual_multi.png"),
             machine_ids=mids_list, beta=args.beta, start_bin=args.start_bin, end_bin=args.end_bin, split=args.split
