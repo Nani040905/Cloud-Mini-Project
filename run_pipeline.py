@@ -286,8 +286,16 @@ def main():
     parser.add_argument("--all", action="store_true", help="Execute complete Phase 1 benchmark suite (Steps 6-14)")
     parser.add_argument("--steps", nargs="+", type=int, help="Specific step numbers to execute (e.g. --steps 6 7 8)")
     parser.add_argument("--eval-only", action="store_true", help="Run only Steps 12, 13, and 14")
-    parser.add_argument("--profile", action="store_true", help="Profile computational latency and model parameters")
+    parser.add_argument("--days", type=float, default=None, help="Truncate time horizon to N days (e.g. 10.0 = 2,880 bins, 5.0 = 1,440 bins)")
+    parser.add_argument("--reset-days", action="store_true", help="Reset time horizon back to full 29 days (8,352 bins)")
     args = parser.parse_args()
+
+    if args.reset_days:
+        from set_horizon import update_split_info
+        update_split_info(days=29.0)
+    elif args.days is not None:
+        from set_horizon import update_split_info
+        update_split_info(days=args.days)
 
     if args.profile:
         profile_computational_cost()

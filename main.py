@@ -313,65 +313,18 @@ def menu_step_5_splits():
             d_in = input("\nEnter number of days to use (1 to 29, default 10): ").strip() or "10"
             try:
                 days = float(d_in)
-                if days <= 0 or days > 29:
-                    print("[Error] Days must be between 1 and 29!")
-                    pause()
-                    continue
-                max_b = int(days * 288)
                 tr_in = float(input("  Train Ratio (default 0.70): ") or "0.70")
                 va_in = float(input("  Val Ratio   (default 0.15): ") or "0.15")
                 te_in = float(input("  Test Ratio  (default 0.15): ") or "0.15")
 
-                if not np.isclose(tr_in + va_in + te_in, 1.0, atol=1e-4):
-                    print(f"\n[Error] Ratios sum to {tr_in + va_in + te_in:.4f}, but must equal 1.0!")
-                    pause()
-                    continue
-
-                from features import get_split_indices
-                with open(split_path, 'r') as f:
-                    s_info = json.load(f)
-
-                updated_info = {}
-                for mid, data in s_info.items():
-                    tot = max_b
-                    new_sp = get_split_indices(tot, train_ratio=tr_in, val_ratio=va_in)
-                    updated_info[mid] = {
-                        'total_bins': tot,
-                        'train_range': new_sp['train'],
-                        'val_range': new_sp['val'],
-                        'test_range': new_sp['test']
-                    }
-
-                with open(split_path, 'w') as f:
-                    json.dump(updated_info, f, indent=2)
-
-                print(f"\n[Success] Reduced dataset to {days:.1f} days ({max_b} bins) across all machines!")
-                sample_mid = list(updated_info.keys())[0]
-                print(f"  Sample Machine ({sample_mid}):")
-                print(f"    Train Range : {updated_info[sample_mid]['train_range']} ({days * tr_in:.1f} days)")
-                print(f"    Val Range   : {updated_info[sample_mid]['val_range']} ({days * va_in:.1f} days)")
-                print(f"    Test Range  : {updated_info[sample_mid]['test_range']} ({days * te_in:.1f} days)")
-                print("\nYou can now re-run model training and evaluation on this reduced dataset.")
+                from set_horizon import update_split_info
+                update_split_info(days=days, train_ratio=tr_in, val_ratio=va_in, test_ratio=te_in)
             except Exception as e:
                 print(f"\n[Error] Failed to reduce horizon: {e}")
             pause()
         elif choice == '4':
-            from features import get_split_indices
-            with open(split_path, 'r') as f:
-                s_info = json.load(f)
-            updated_info = {}
-            for mid, data in s_info.items():
-                tot = 8352
-                new_sp = get_split_indices(tot, train_ratio=0.70, val_ratio=0.15)
-                updated_info[mid] = {
-                    'total_bins': tot,
-                    'train_range': new_sp['train'],
-                    'val_range': new_sp['val'],
-                    'test_range': new_sp['test']
-                }
-            with open(split_path, 'w') as f:
-                json.dump(updated_info, f, indent=2)
-            print("\n[Success] Reset to Full 29 Days (8,352 bins) with default 70% Train / 15% Val / 15% Test split.")
+            from set_horizon import update_split_info
+            update_split_info(days=29.0, train_ratio=0.70, val_ratio=0.15, test_ratio=0.15)
             pause()
         elif choice == 'B':
             break
