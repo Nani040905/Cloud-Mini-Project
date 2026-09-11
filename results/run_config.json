@@ -92,6 +92,6 @@
   ],
   "sla_target": 0.01,
   "grace_band": 0.005,
-  "git_commit": "a04bf64",
-  "run_timestamp": "2026-09-11T12:40:42.350017Z"
+  "git_commit": "854b6ed",
+  "run_timestamp": "2026-09-11T14:05:24.760991Z"
 }
