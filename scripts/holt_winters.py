@@ -51,29 +51,39 @@ def fit_hw_single_machine(series: pd.Series, train_slice: tuple, val_slice: tupl
     va_s, va_e = val_slice
     te_s, te_e = test_slice
 
-    train_data = series.iloc[tr_s:tr_e].dropna()
-    val_data   = series.iloc[va_s:va_e]
-    test_data  = series.iloc[te_s:te_e]
+    train_series = series.iloc[tr_s:tr_e].copy()
+    val_data     = series.iloc[va_s:va_e]
+    test_data    = series.iloc[te_s:te_e]
     n_val, n_test = len(val_data), len(test_data)
+
+    # Maintain regular 5-minute grid spacing for model fitting across gaps
+    train_filled = train_series.interpolate(method='linear').bfill().ffill()
+    val_actual = val_data.values
+    valid_mask = ~np.isnan(val_actual)
 
     best_m = None
     best_val_mae = float('inf')
     best_val_preds = np.full(n_val, np.nan)
+    best_fitted_model = None
 
     # Filter candidate seasonal periods requiring at least 2 complete cycles in training
-    valid_m = [m for m in candidate_m if len(train_data) >= 2 * m]
+    valid_m = [m for m in candidate_m if len(train_filled) >= 2 * m]
 
     if valid_m:
         for m in valid_m:
             try:
                 model = ExponentialSmoothing(
-                    train_data.values, trend='add', seasonal='add',
+                    train_filled.values, trend='add', seasonal='add',
                     seasonal_periods=m, initialization_method='estimated'
                 ).fit(optimized=True)
                 val_p = model.forecast(n_val)
-                mae = float(np.mean(np.abs(val_data.dropna().values - val_p[:len(val_data.dropna())])))
+                if np.sum(valid_mask) > 0:
+                    mae = float(np.mean(np.abs(val_actual[valid_mask] - val_p[valid_mask])))
+                else:
+                    mae = float('inf')
                 if mae < best_val_mae:
                     best_val_mae, best_m, best_val_preds = mae, m, val_p
+                    best_fitted_model = model
             except Exception:
                 continue
 
@@ -81,38 +91,54 @@ def fit_hw_single_machine(series: pd.Series, train_slice: tuple, val_slice: tupl
     if best_m is None:
         try:
             model = ExponentialSmoothing(
-                train_data.values, trend='add', seasonal=None,
+                train_filled.values, trend='add', seasonal=None,
                 initialization_method='estimated'
             ).fit(optimized=True)
             best_val_preds = model.forecast(n_val)
-            best_val_mae = float(np.mean(np.abs(val_data.dropna().values - best_val_preds[:len(val_data.dropna())])))
+            if np.sum(valid_mask) > 0:
+                best_val_mae = float(np.mean(np.abs(val_actual[valid_mask] - best_val_preds[valid_mask])))
+            else:
+                best_val_mae = 0.0
             best_m = 0
+            best_fitted_model = model
         except Exception:
-            best_val_preds = np.full(n_val, train_data.mean())
-            best_val_mae = float(np.mean(np.abs(val_data.dropna().values - best_val_preds[:len(val_data.dropna())])))
+            mean_val = float(train_filled.mean()) if len(train_filled) > 0 else 0.0
+            best_val_preds = np.full(n_val, mean_val)
+            if np.sum(valid_mask) > 0:
+                best_val_mae = float(np.mean(np.abs(val_actual[valid_mask] - best_val_preds[valid_mask])))
+            else:
+                best_val_mae = 0.0
             best_m = -1
+            best_fitted_model = None
+
+    # Extract last training prediction strictly from model fitted values (no target leakage)
+    if best_fitted_model is not None and hasattr(best_fitted_model, 'fittedvalues') and len(best_fitted_model.fittedvalues) > 0:
+        last_train_pred = float(np.clip(best_fitted_model.fittedvalues[-1], 0.0, 1.0))
+    else:
+        last_train_pred = float(np.clip(train_filled.mean(), 0.0, 1.0))
 
     # --------------------------------------------------------------------------
     # Causal Refit: Update level/trend/seasonality using combined [train + val]
     # --------------------------------------------------------------------------
-    train_val_data = series.iloc[tr_s:va_e].dropna()
+    train_val_series = series.iloc[tr_s:va_e].copy()
+    train_val_filled = train_val_series.interpolate(method='linear').bfill().ffill()
     try:
-        if best_m > 0 and len(train_val_data) >= 2 * best_m:
+        if best_m > 0 and len(train_val_filled) >= 2 * best_m:
             refit = ExponentialSmoothing(
-                train_val_data.values, trend='add', seasonal='add',
+                train_val_filled.values, trend='add', seasonal='add',
                 seasonal_periods=best_m, initialization_method='estimated'
             ).fit(optimized=True)
             test_preds = refit.forecast(n_test)
         elif best_m >= 0:
             refit = ExponentialSmoothing(
-                train_val_data.values, trend='add', seasonal=None,
+                train_val_filled.values, trend='add', seasonal=None,
                 initialization_method='estimated'
             ).fit(optimized=True)
             test_preds = refit.forecast(n_test)
         else:
-            test_preds = np.full(n_test, train_val_data.mean())
+            test_preds = np.full(n_test, train_val_filled.mean())
     except Exception:
-        test_preds = np.full(n_test, train_val_data.mean())
+        test_preds = np.full(n_test, train_val_filled.mean())
 
     # Bound physical forecasts strictly to [0.0, 1.0]
     test_preds = np.clip(test_preds, 0.0, 1.0)
@@ -128,6 +154,7 @@ def fit_hw_single_machine(series: pd.Series, train_slice: tuple, val_slice: tupl
         'val_mae': best_val_mae,
         'val_preds': best_val_preds,
         'test_preds': test_preds,
+        'last_train_pred': last_train_pred,
         'metrics': metrics
     }
 
@@ -151,7 +178,7 @@ def _fit_single_machine_worker(mid, series_dir, split_info, candidate_m):
     m.update({'machine_id': mid, 'best_m': res['best_m'], 'val_mae': res['val_mae']})
 
     tr_s, tr_e = splits['train_range']
-    last_train_p = res.get('last_train_pred', float(df['cpu'].iloc[tr_e - 1]))
+    last_train_p = res['last_train_pred']
     train_rec = {
         'machine_id': mid, 'split': 'train', 'bin_idx': tr_e - 1,
         'y_true': df['cpu'].iloc[tr_e - 1], 'hw_pred': last_train_p

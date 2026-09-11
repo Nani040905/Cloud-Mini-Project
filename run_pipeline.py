@@ -262,12 +262,18 @@ def save_run_provenance():
     if os.path.exists(final_csv):
         try:
             fr = pd.read_csv(final_csv)
-            proposed_row = fr[fr['Config'].str.contains("Proposed", case=False, na=False)]
-            if len(proposed_row) > 0:
-                provenance["empirical_sla_breach_rate"] = float(proposed_row["SLA_Breach"].iloc[0])
-                provenance["empirical_over_prov_mean"] = float(proposed_row["Over_Prov"].iloc[0])
-        except Exception:
-            pass
+            cfg_col = [c for c in fr.columns if 'config' in c.lower()]
+            if cfg_col:
+                proposed_row = fr[fr[cfg_col[0]].str.contains("Proposed", case=False, na=False)]
+                if len(proposed_row) > 0:
+                    sla_cols = [c for c in fr.columns if 'sla breach' in c.lower()]
+                    if sla_cols:
+                        provenance["empirical_sla_breach_rate"] = str(proposed_row[sla_cols[0]].iloc[0])
+                    ovp_cols = [c for c in fr.columns if 'over-prov' in c.lower()]
+                    if ovp_cols:
+                        provenance["empirical_over_prov_mean"] = str(proposed_row[ovp_cols[0]].iloc[0])
+        except Exception as e:
+            print(f"[Warning] Could not extract inline stats for provenance: {e}")
 
     prov_path = os.path.join(results_dir, "data_provenance.json")
     with open(prov_path, "w") as f:

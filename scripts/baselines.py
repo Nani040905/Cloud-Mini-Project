@@ -82,6 +82,7 @@ def evaluate_baselines(series_dir: str, selected_json: str, split_info_path: str
             al_b0b = np.clip(ar_b0b, 0.0, 1.0)
             m_b0b = compute_metrics(y_test, pred_b0b, ar_b0b, al_b0b)
         else:
+            print(f"[Notice] Machine {mid}: Series length {len(full_cpu)} <= seasonal period {m_period}; using NaN fallback.")
             m_b0b = {k: np.nan for k in m_b0.keys()}
             m_b0b['valid_count'] = 0
 
@@ -91,8 +92,9 @@ def evaluate_baselines(series_dir: str, selected_json: str, split_info_path: str
         # ----------------------------------------------------------------------
         # B0c: Causal Moving Average (6-step trailing window from continuous full series)
         # Formula: y_hat[t] = mean(y[t-6 : t-1])
+        # Enforces strict min_periods=6 to honor full 6-step history requirement
         # ----------------------------------------------------------------------
-        pred_b0c_full = full_cpu.shift(1).rolling(6, min_periods=1).mean().values
+        pred_b0c_full = full_cpu.shift(1).rolling(6, min_periods=6).mean().values
         pred_b0c = pred_b0c_full[test_start:test_end]
         ar_b0c = pred_b0c * 1.10
         al_b0c = np.clip(ar_b0c, 0.0, 1.0)

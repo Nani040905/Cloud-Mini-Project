@@ -37,7 +37,7 @@ from torch.utils.data import TensorDataset, DataLoader
 
 from utils import (
     compute_metrics, SEED, SEQ_LEN, PROCESSED_DIR, MODELS_DIR,
-    SELECTED_MACHINES_PATH, SPLIT_INFO_PATH, SLA_TARGET
+    SELECTED_MACHINES_PATH, SPLIT_INFO_PATH, SLA_TARGET, set_seed
 )
 from features import BASE_FEATURES, EXTENDED_FEATURES, build_gru_sequences
 
@@ -47,14 +47,6 @@ DROPOUT_RATE = 0.2
 LEARNING_RATE = 1e-3
 EPOCHS = 20
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-
-def set_seed(seed=SEED):
-    """Enforces deterministic initialization across PyTorch, NumPy, and random states."""
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-    np.random.seed(seed)
 
 
 class GRUPredictor(nn.Module):
@@ -203,6 +195,10 @@ def run_gru_pipeline(tier: str, output_dir: str, batch_size: int = BATCH_SIZE):
     print(f"Tensors | Train: {tr_X.shape} | Val: {va_X.shape} | Test: {te_X.shape}")
 
     use_cuda = torch.cuda.is_available()
+    # Note on DataLoader shuffle=False (Finding F27):
+    # Sequences are pre-assembled in chronological per-machine blocks. Keeping shuffle=False
+    # preserves deterministic batch ordering and sequential temporal chunking across runs,
+    # ensuring strict reproducibility across CPU/GPU execution.
     tr_loader = DataLoader(TensorDataset(torch.tensor(tr_X, dtype=torch.float32), torch.tensor(tr_y, dtype=torch.float32)),
                            batch_size=batch_size, shuffle=False, pin_memory=use_cuda)
     va_loader = DataLoader(TensorDataset(torch.tensor(va_X, dtype=torch.float32), torch.tensor(va_y, dtype=torch.float32)),

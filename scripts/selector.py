@@ -35,7 +35,12 @@ SIGNALS = ['U1', 'U2', 'U3']
 
 
 def tune_window_n(val_df: pd.DataFrame) -> int:
-    """Tuning sliding window N on the validation set to maximize winning correlation."""
+    """
+    Tuning sliding window N on the validation set to maximize winning correlation.
+    Note: Window N tunes local uncertainty rank fidelity (Spearman rho with forecast error),
+    which is an intrinsic evaluation of signal tracking quality, distinct from the downstream
+    capacity buffer multiplier beta tuned in allocation.py.
+    """
     best_n = 50
     best_winning_rho = -float('inf')
 
@@ -200,12 +205,20 @@ def run_reliability_selector(uncertainty_csv: str, output_dir: str):
     print("=" * 65)
 
     # ------------------------------------------------------------------
-    # Comparative Advantage: Adaptive Selection vs. Best Static Signal
+    # Comparative Advantage: Adaptive Selection vs. Dominant Static Signal
     # ------------------------------------------------------------------
-    # The globally dominant static candidate is U1 (highest overall selection)
-    static_best = 'U1'
+    # Programmatically determine dominant static candidate from empirical selection frequency
+    counts = test_sub['chosen_signal'].value_counts()
+    static_best = str(counts.index[0]) if len(counts) > 0 else 'U1'
     divergent_mask = (test_sub['chosen_signal'] != static_best)
     div_rate = float(divergent_mask.mean())
+
+    print("\n" + "=" * 65)
+    print("    DYNAMIC ARBITRATION VS. STATIC BASELINES (TEST SPLIT)")
+    print("=" * 65)
+    dominant_pct = (counts.iloc[0] / len(test_sub)) if len(test_sub) > 0 else 0.0
+    print(f"Empirically Dominant Static Baseline: {static_best} ({dominant_pct:.1%} selection)")
+    print(f"Divergence Rate (U* != {static_best})          : {div_rate:.1%} of timesteps")
 
     if divergent_mask.sum() > 0:
         div_sub = test_sub[divergent_mask]
@@ -213,16 +226,19 @@ def run_reliability_selector(uncertainty_csv: str, output_dir: str):
         rho_static = div_sub[f"rho_{static_best}"].mean()
         delta_rho = rho_adaptive - rho_static
 
-        print("\n" + "=" * 65)
-        print("    DYNAMIC ARBITRATION VS. STATIC BASELINE (TEST SPLIT)")
-        print("=" * 65)
-        print(f"Globally Dominant Static Baseline : {static_best}")
-        print(f"Divergence Rate (U* != {static_best})       : {div_rate:.1%} of timesteps")
         print(f"In divergent timesteps:")
-        print(f"  Adaptive Signal Mean Local Rho  : {rho_adaptive:+.4f}")
-        print(f"  Static {static_best} Mean Local Rho        : {rho_static:+.4f}")
-        print(f"  Reliability Advantage (+Delta)  : {delta_rho:+.4f} (rho improvement)")
-        print("=" * 65)
+        print(f"  Adaptive Signal Mean Local Rho     : {rho_adaptive:+.4f}")
+        print(f"  Static {static_best:2s} Mean Local Rho           : {rho_static:+.4f}")
+        print(f"  Reliability Advantage (+Delta)     : {delta_rho:+.4f} (rho improvement)")
+
+    # Comparative local Spearman rho across all test timesteps
+    print("\nLocal Tracking Fidelity (All Test Timesteps):")
+    for s in SIGNALS:
+        mean_s_rho = test_sub[f"rho_{s}"].mean()
+        print(f"  Static {s:2s} Mean Local Spearman Rho : {mean_s_rho:+.4f}")
+    mean_u_star_rho = test_sub.apply(lambda r: r[f"rho_{r['chosen_signal']}"], axis=1).mean()
+    print(f"  Adaptive U* Mean Local Spearman Rho: {mean_u_star_rho:+.4f}")
+    print("=" * 65)
 
 
 def main():

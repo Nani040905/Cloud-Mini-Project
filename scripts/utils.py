@@ -36,14 +36,38 @@ SELECTED_MACHINES_PATH = os.path.join(DATA_DIR, "selected_machines.json")
 SPLIT_INFO_PATH = os.path.join(PROCESSED_DIR, "split_info.json")
 
 
+import random
+from scipy.stats import rankdata
+
 # ==============================================================================
 # High-Performance Mathematical & Evaluation Functions
 # ==============================================================================
 
+def set_seed(seed: int = SEED):
+    """
+    Enforces deterministic reproducibility across Python random, hash seed,
+    NumPy, and PyTorch (including CuDNN determinism).
+    """
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    np.random.seed(seed)
+    try:
+        import torch
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed(seed)
+            torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+    except ImportError:
+        pass
+
+
 def fast_spearman(x: np.ndarray, y: np.ndarray) -> float:
     """
-    Optimized Spearman Rank Correlation using vectorized ranking.
-    Avoids heavy scipy.stats overhead (~20-50x faster inside tight sliding-window loops).
+    Vectorized Spearman Rank Correlation with exact fractional average tie handling.
+    Uses scipy.stats.rankdata(method='average') to assign fractional ranks to tied values,
+    avoiding arbitrary ordinal ranking while retaining sub-millisecond evaluation speed.
     Returns 0.0 for constant or NaN inputs.
     """
     valid = ~np.isnan(x) & ~np.isnan(y)
@@ -58,9 +82,9 @@ def fast_spearman(x: np.ndarray, y: np.ndarray) -> float:
     if np.all(xv == xv[0]) or np.all(yv == yv[0]):
         return 0.0
 
-    # Fast fractional rank calculation via numpy argsort
-    rx = np.argsort(np.argsort(xv)).astype(np.float64)
-    ry = np.argsort(np.argsort(yv)).astype(np.float64)
+    # Fractional rank calculation via rankdata (method='average') for exact tie handling
+    rx = rankdata(xv, method='average')
+    ry = rankdata(yv, method='average')
 
     # Pearson correlation on the ranks: rho = cov(rx, ry) / (std(rx) * std(ry))
     rx_mean = rx - np.mean(rx)

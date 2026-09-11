@@ -33,7 +33,8 @@ SEEDS = [42, 123, 456, 789]
 MACHINE_COUNTS = [50, 100]
 
 
-def run_robustness_sweep(selector_log_path: str = UNCERTAINTY_LOG, output_csv: str = None):
+def run_robustness_sweep(selector_log_path: str = UNCERTAINTY_LOG, output_csv: str = None,
+                         alloc_results_path: str = None):
     if not os.path.exists(selector_log_path):
         raise FileNotFoundError(f"Selector log not found: {selector_log_path}. Run pipeline first.")
 
@@ -51,18 +52,23 @@ def run_robustness_sweep(selector_log_path: str = UNCERTAINTY_LOG, output_csv: s
     if output_csv is None:
         output_csv = os.path.join(RESULTS_DIR, "robustness_results.csv")
 
-    alloc_csv = os.path.join(RESULTS_DIR, "allocation_results.csv")
-    beta_star = 14.0
-    if os.path.exists(alloc_csv):
-        try:
-            a_df = pd.read_csv(alloc_csv)
-            sub_a = a_df[a_df['config'] == 'Proposed_Adaptive_U']
-            if len(sub_a) > 0 and 'beta_buf' in sub_a.columns:
-                beta_star = float(sub_a['beta_buf'].iloc[0])
-        except Exception:
-            pass
+    alloc_csv = alloc_results_path or os.path.join(RESULTS_DIR, "allocation_results.csv")
+    if not os.path.exists(alloc_csv):
+        raise RuntimeError(
+            f"Cannot run sensitivity analysis: {alloc_csv} does not exist. "
+            "Please run allocation.py first to calibrate beta*."
+        )
 
-    print(f"Evaluated with Calibrated Adaptive Multiplier: beta = {beta_star:.2f}")
+    a_df = pd.read_csv(alloc_csv)
+    sub_a = a_df[a_df['config'] == 'Proposed_Adaptive_U']
+    if len(sub_a) == 0 or 'beta_buf' not in sub_a.columns:
+        raise RuntimeError(
+            f"Cannot run sensitivity analysis: 'Proposed_Adaptive_U' config or 'beta_buf' column "
+            f"not found in {alloc_csv}."
+        )
+
+    beta_star = float(sub_a['beta_buf'].iloc[0])
+    print(f"Evaluated with Calibrated Adaptive Multiplier: beta* = {beta_star:.2f}")
 
     results = []
     # Evaluate each cell in the 4x4 matrix

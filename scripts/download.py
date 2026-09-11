@@ -91,7 +91,14 @@ def download_file(url: str, dest_path: str, desc: str = "", max_retries: int = 5
                 mode = 'wb'
 
             resp = session.get(url, headers=headers, stream=True, timeout=(15, 60))
-            if resp.status_code not in (200, 206):
+            if resp.status_code == 200:
+                # Server sent full content from offset 0, reset buffer and overwrite
+                downloaded_bytes = 0
+                mode = 'wb'
+            elif resp.status_code == 206:
+                # Server successfully resumed partial content
+                mode = 'ab'
+            else:
                 resp = session.get(url, stream=True, timeout=(15, 60))
                 resp.raise_for_status()
                 downloaded_bytes = 0

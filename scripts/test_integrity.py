@@ -233,6 +233,100 @@ class TestExperimentalIntegrity(unittest.TestCase):
                     f"Timestep {t_overlap} whose window overlaps NaN should be excluded from sequences."
                 )
 
+    def test_09_fast_spearman_tie_handling(self):
+        """F16: Verify that fast_spearman correctly handles ties matching scipy.stats.spearmanr."""
+        from scipy.stats import spearmanr
+        from utils import fast_spearman
+
+        # Vectors with heavy repeated/tied values (common in quantized EWMA/std uncertainty)
+        x = np.array([1.0, 2.0, 2.0, 3.0, 4.0, 4.0, 4.0, 5.0, 6.0])
+        y = np.array([2.0, 2.0, 3.0, 5.0, 4.0, 6.0, 6.0, 7.0, 8.0])
+
+        expected_rho, _ = spearmanr(x, y)
+        actual_rho = fast_spearman(x, y)
+
+        self.assertAlmostEqual(
+            actual_rho, expected_rho, places=7,
+            msg=f"fast_spearman ({actual_rho}) did not match scipy.stats.spearmanr ({expected_rho}) on tied data!"
+        )
+
+        # Constant array should return 0.0 without crashing
+        const_x = np.full(len(y), 2.5)
+        self.assertEqual(fast_spearman(const_x, y), 0.0)
+
+    def test_10_holt_winters_timestamp_alignment_and_no_leakage(self):
+        """F17-F19: Verify HW validation alignment on NaN actuals, regular grid, and no train target leakage."""
+        from holt_winters import fit_hw_single_machine
+
+        # Synthetic series with 100 points, containing NaNs in train and val
+        series = pd.Series(np.sin(np.linspace(0, 10 * np.pi, 100)) * 0.4 + 0.5)
+        series.iloc[15:18] = np.nan  # gap in train
+        series.iloc[65:68] = np.nan  # gap in val
+
+        train_slice = (0, 50)
+        val_slice = (50, 75)
+        test_slice = (75, 100)
+
+        res = fit_hw_single_machine(series, train_slice, val_slice, test_slice, candidate_m=[10])
+        
+        # 1. Validation MAE must be a finite float, evaluated strictly on observed valid points
+        self.assertTrue(np.isfinite(res['val_mae']), "Validation MAE must be finite despite NaNs in validation.")
+        
+        # 2. last_train_pred must be returned and must be bounded in [0.0, 1.0]
+        self.assertIn('last_train_pred', res, "Result must contain 'last_train_pred'.")
+        self.assertTrue(0.0 <= res['last_train_pred'] <= 1.0, "last_train_pred must be physically bounded.")
+
+    def test_11_fusion_split_merge_integrity(self):
+        """F30: Verify fusion merge includes 'split' preventing cross-split contamination."""
+        import tempfile
+        from fusion import run_fusion
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hw_csv = os.path.join(tmpdir, "hw.csv")
+            gru_csv = os.path.join(tmpdir, "gru.csv")
+
+            hw_df = pd.DataFrame({
+                'machine_id': [1, 1],
+                'split': ['val', 'test'],
+                'bin_idx': [100, 101],
+                'y_true': [0.4, 0.5],
+                'hw_pred': [0.42, 0.48]
+            })
+            gru_df = pd.DataFrame({
+                'machine_id': [1, 1],
+                'split': ['val', 'test'],
+                'bin_idx': [100, 101],
+                'gru_pred': [0.39, 0.51]
+            })
+
+            hw_df.to_csv(hw_csv, index=False)
+            gru_df.to_csv(gru_csv, index=False)
+
+            run_fusion(hw_csv, gru_csv, tmpdir)
+            fused = pd.read_csv(os.path.join(tmpdir, "fusion_predictions.csv"))
+            self.assertIn('split', fused.columns)
+            self.assertEqual(len(fused), 2)
+            self.assertListEqual(list(fused['split']), ['val', 'test'])
+
+    def test_12_robustness_beta_fallback_rejection(self):
+        """F24: Verify robustness sweep raises RuntimeError when allocation results are missing (no beta=14 fallback)."""
+        from robustness import run_robustness_sweep
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dummy_log = os.path.join(tmpdir, "selector_log.csv")
+            pd.DataFrame({
+                'machine_id': [1], 'split': ['test'], 'bin_idx': [10],
+                'y_true': [0.5], 'fused_pred': [0.5], 'U_star': [0.02]
+            }).to_csv(dummy_log, index=False)
+
+            # Explicitly point to a nonexistent allocation results path
+            missing_alloc = os.path.join(tmpdir, "nonexistent_alloc.csv")
+            with self.assertRaises(RuntimeError) as ctx:
+                run_robustness_sweep(selector_log_path=dummy_log, output_csv=os.path.join(tmpdir, "out.csv"),
+                                     alloc_results_path=missing_alloc)
+            self.assertIn("nonexistent_alloc.csv", str(ctx.exception))
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

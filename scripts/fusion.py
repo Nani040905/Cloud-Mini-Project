@@ -34,11 +34,11 @@ def run_fusion(hw_preds_path: str, gru_preds_path: str, output_dir: str):
     hw_df = pd.read_csv(hw_preds_path)
     gru_df = pd.read_csv(gru_preds_path)
 
-    # Merge on machine_id, bin_idx, split
+    # Merge on machine_id, split, bin_idx
     merged = pd.merge(
         hw_df[['machine_id', 'split', 'bin_idx', 'y_true', 'hw_pred']],
-        gru_df[['machine_id', 'bin_idx', 'gru_pred']],
-        on=['machine_id', 'bin_idx'],
+        gru_df[['machine_id', 'split', 'bin_idx', 'gru_pred']],
+        on=['machine_id', 'split', 'bin_idx'],
         how='inner'
     )
     print(f"Total aligned predictions across validation and test: {len(merged):,}")
