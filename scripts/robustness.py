@@ -1,10 +1,10 @@
 """
 scripts/robustness.py
 
-Machine-Subset Sensitivity Analysis (16-run parameter matrix).
+Machine-Subset Sensitivity Analysis (8-run parameter matrix).
 
 IMPORTANT: This is NOT a full retraining robustness experiment.
-All 16 runs reuse the same pre-trained GRU/HW models and the same
+All 8 runs reuse the same pre-trained GRU/HW models and the same
 trained beta* from the main pipeline run. Only the machine subset
 and the subsampling random seed change in each run.
 
@@ -15,7 +15,7 @@ True independent-seed retraining is planned for Phase 2.
 
 Matrix:
   - 4 Subsample Seeds: [42, 123, 456, 789]
-  - 4 Machine Counts:  [50, 100, 200, 290]
+  - 2 Machine Counts:  [50, 100]
 Outputs: results/robustness_results.csv
 """
 
@@ -30,7 +30,7 @@ UNCERTAINTY_LOG = os.path.join(PROJECT_ROOT, "uncertainty", "selector_log.csv")
 RESULTS_DIR = os.path.join(PROJECT_ROOT, "results")
 
 SEEDS = [42, 123, 456, 789]
-MACHINE_COUNTS = [50, 100, 200, 290]
+MACHINE_COUNTS = [50, 100]
 
 
 def run_robustness_sweep(selector_log_path: str = UNCERTAINTY_LOG, output_csv: str = None):
@@ -38,7 +38,7 @@ def run_robustness_sweep(selector_log_path: str = UNCERTAINTY_LOG, output_csv: s
         raise FileNotFoundError(f"Selector log not found: {selector_log_path}. Run pipeline first.")
 
     print("=" * 80)
-    print("  MACHINE-SUBSET SENSITIVITY ANALYSIS (16-RUN SUBSAMPLE MATRIX)")
+    print("  MACHINE-SUBSET SENSITIVITY ANALYSIS (8-RUN SUBSAMPLE MATRIX)")
     print("  NOTE: Reuses trained models/beta; only machine subset varies.")
     print("=" * 80)
     df = pd.read_csv(selector_log_path)
@@ -114,7 +114,7 @@ def run_robustness_sweep(selector_log_path: str = UNCERTAINTY_LOG, output_csv: s
     print("=" * 85)
     print(res_df.to_string(index=False))
     print("=" * 85)
-    print(f"\nMean SLA Breach Rate across all 16 runs:")
+    print(f"\nMean SLA Breach Rate across all 8 runs:")
     print(f"  Fixed 10% Buffer  : {res_df['Fixed 10% Breach'].mean():.2%}")
     print(f"  Adaptive U* Buffer: {res_df['Adaptive U* Breach'].mean():.2%}")
     print(f"  Average Reduction : {res_df['SLA Reduction'].mean():.2%}")

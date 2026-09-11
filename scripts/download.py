@@ -36,6 +36,10 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
+import pyarrow as pa
+import pyarrow.csv as pv
+import pyarrow.compute as pc
+import pyarrow.parquet as pq
 
 CHUNK_SIZE = 4 * 1024 * 1024  # 4 MB chunk size (maximizes socket throughput, zero throttling)
 
@@ -53,7 +57,7 @@ def create_session() -> requests.Session:
     """Create a requests Session with HTTP keep-alive and connection pooling."""
     session = requests.Session()
     retries = Retry(total=5, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
-    adapter = HTTPAdapter(pool_connections=32, pool_maxsize=32, max_retries=retries)
+    adapter = HTTPAdapter(pool_connections=64, pool_maxsize=64, max_retries=retries)
     session.mount('https://', adapter)
     session.mount('http://', adapter)
     return session
@@ -73,9 +77,10 @@ def download_file(url: str, dest_path: str, desc: str = "", max_retries: int = 5
     if os.path.exists(dest_path) and os.path.getsize(dest_path) == total_size and total_size > 0:
         return
 
+    temp_path = dest_path + ".downloading"
     for attempt in range(1, max_retries + 1):
         try:
-            downloaded_bytes = os.path.getsize(dest_path) if os.path.exists(dest_path) else 0
+            downloaded_bytes = os.path.getsize(temp_path) if os.path.exists(temp_path) else 0
             headers = {}
             mode = 'wb'
             if 0 < downloaded_bytes < total_size:
@@ -92,7 +97,7 @@ def download_file(url: str, dest_path: str, desc: str = "", max_retries: int = 5
                 downloaded_bytes = 0
                 mode = 'wb'
 
-            with open(dest_path, mode) as f, tqdm(
+            with open(temp_path, mode) as f, tqdm(
                 desc=desc or os.path.basename(dest_path),
                 total=total_size,
                 initial=downloaded_bytes,
@@ -106,9 +111,12 @@ def download_file(url: str, dest_path: str, desc: str = "", max_retries: int = 5
                         f.write(chunk)
                         bar.update(len(chunk))
 
-            final_size = os.path.getsize(dest_path)
+            final_size = os.path.getsize(temp_path)
             if total_size > 0 and final_size != total_size:
                 raise IOError(f"Incomplete download: {final_size}/{total_size} bytes")
+            if os.path.exists(dest_path):
+                os.remove(dest_path)
+            os.replace(temp_path, dest_path)
             return
 
         except Exception as e:
@@ -116,8 +124,8 @@ def download_file(url: str, dest_path: str, desc: str = "", max_retries: int = 5
             if attempt < max_retries:
                 time.sleep(2 * attempt)
             else:
-                if os.path.exists(dest_path):
-                    os.remove(dest_path)
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
                 raise
 
 
@@ -156,8 +164,8 @@ def step1_get_candidates(force: bool = False) -> set:
     return set(chosen_candidates)
 
 
-def process_single_part(part_idx: int, candidates: set, force: bool = False):
-    """Download, filter, save parquet, and clean up a single task_usage part."""
+def process_single_part(part_idx: int, cand_arr: pa.Array, force: bool = False):
+    """Download, filter using native PyArrow C++, save parquet, and clean up raw csv.gz immediately."""
     parquet_name = f"filtered_{part_idx:05d}.parquet"
     parquet_path = os.path.join(PROCESSED_DIR, parquet_name)
 
@@ -169,41 +177,63 @@ def process_single_part(part_idx: int, candidates: set, force: bool = False):
     raw_local    = os.path.join(RAW_USAGE_DIR, part_name)
 
     try:
+        t_dl_start = time.time()
         download_file(url, raw_local, desc=f"Part {part_idx:03d}")
-        chunk = pd.read_csv(
-            raw_local,
-            header=None,
-            usecols=COLS_USAGE,
-            names=COL_NAMES_USAGE,
-            dtype=USAGE_DTYPES,
-            compression='gzip'
+        dl_time = time.time() - t_dl_start
+        file_size_mb = os.path.getsize(raw_local) / (1024 * 1024)
+        dl_speed = file_size_mb / max(dl_time, 0.001)
+
+        t_filter_start = time.time()
+        # Native PyArrow multithreaded C++ parser: auto-detect columns, load only needed cols, zero pandas overhead
+        read_options = pv.ReadOptions(autogenerate_column_names=True)
+        convert_options = pv.ConvertOptions(
+            include_columns=['f0', 'f1', 'f4', 'f5', 'f6', 'f11'],
+            column_types={
+                'f0': pa.float64(),
+                'f1': pa.float64(),
+                'f4': pa.float64(),
+                'f5': pa.float32(),
+                'f6': pa.float32(),
+                'f11': pa.float32()
+            }
         )
-        filtered = chunk[chunk['machine_id'].isin(candidates)].copy()
+        table = pv.read_csv(raw_local, read_options=read_options, convert_options=convert_options)
+        table = table.rename_columns(COL_NAMES_USAGE)
+        mask = pc.is_in(table['machine_id'], cand_arr)
+        filtered_table = table.filter(mask)
 
-        if len(filtered) > 0:
-            filtered.to_parquet(parquet_path, index=False, engine='pyarrow')
-            rows_kept = len(filtered)
-        else:
-            filtered.to_parquet(parquet_path, index=False, engine='pyarrow')
-            rows_kept = 0
+        # Atomic write to temporary file then rename to prevent partial parquets
+        temp_parquet = parquet_path + ".tmp"
+        pq.write_table(filtered_table, temp_parquet, compression='snappy')
+        if os.path.exists(parquet_path):
+            os.remove(parquet_path)
+        os.replace(temp_parquet, parquet_path)
 
-        print(f"[{part_idx + 1:03d}/{TOTAL_PARTS}] Kept {rows_kept} rows for {len(candidates)} candidate machines.")
+        t_filter = time.time() - t_filter_start
+        rows_kept = len(filtered_table)
+        print(f"[{part_idx + 1:03d}/{TOTAL_PARTS}] DL {file_size_mb:.1f}MB ({dl_speed:.2f}MB/s) | Converted {len(table):,} -> {rows_kept:,} rows in {t_filter:.2f}s -> {parquet_name}")
         return part_idx, rows_kept, False
 
     finally:
         if os.path.exists(raw_local):
-            os.remove(raw_local)
+            try:
+                os.remove(raw_local)
+            except OSError:
+                pass
 
 
 def step2_stream_filter(candidates: set, start_part: int = 0, num_parts: int = TOTAL_PARTS,
-                        force: bool = False, workers: int = 4):
+                        force: bool = False, workers: int = 6):
     """
     Stream each task_usage part, filter rows to candidates, save parquet,
     and delete raw csv.gz immediately to conserve disk space.
-    Uses ThreadPoolExecutor for 3-4 parallel downloads and processing.
+    Uses ThreadPoolExecutor for 6 parallel downloads and sub-second PyArrow conversions.
     """
     os.makedirs(PROCESSED_DIR, exist_ok=True)
     os.makedirs(RAW_USAGE_DIR, exist_ok=True)
+
+    # Pre-build PyArrow candidate array once to avoid repetitive allocations
+    cand_arr = pa.array(list(candidates), type=pa.float64())
 
     end_part = min(TOTAL_PARTS, start_part + num_parts)
     print(f"\n--- Streaming parts {start_part} to {end_part - 1} (total {end_part - start_part} parts, {workers} parallel workers) ---")
@@ -222,7 +252,7 @@ def step2_stream_filter(candidates: set, start_part: int = 0, num_parts: int = T
         return
 
     with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = {executor.submit(process_single_part, p_idx, candidates, force): p_idx for p_idx in pending_parts}
+        futures = {executor.submit(process_single_part, p_idx, cand_arr, force): p_idx for p_idx in pending_parts}
         for future in as_completed(futures):
             p_idx = futures[future]
             try:
@@ -236,7 +266,7 @@ def main():
     parser = argparse.ArgumentParser(description="Download and stream-filter Google Cluster Trace v2")
     parser.add_argument("--start", type=int, default=0, help="Starting part index (0-499)")
     parser.add_argument("--count", type=int, default=TOTAL_PARTS, help="Number of parts to process")
-    parser.add_argument("--workers", type=int, default=4, help="Number of parallel download & filter workers (default 4)")
+    parser.add_argument("--workers", type=int, default=6, help="Number of parallel download & filter workers (default 6)")
     parser.add_argument("--test", action="store_true", help="Run test mode (process 3 parts only)")
     parser.add_argument("--force", action="store_true", help="Force re-download and re-filter even if files exist")
     args = parser.parse_args()
