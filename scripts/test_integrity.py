@@ -23,7 +23,8 @@ if SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, SCRIPTS_DIR)
 
 from features import (
-    BASE_FEATURES, EXTENDED_FEATURES, extract_features_single_machine
+    BASE_FEATURES, EXTENDED_FEATURES, extract_features_single_machine,
+    build_gru_sequences
 )
 from uncertainty import compute_u2_series
 from selector import evaluate_selector_on_split, tune_window_n
@@ -200,6 +201,37 @@ class TestExperimentalIntegrity(unittest.TestCase):
             places=6,
             msg=f"Changing disk(t) leaked into disk feature at timestep t={target_t}!"
         )
+
+    def test_08_gru_sequences_reject_nan_windows_and_targets(self):
+        """Step 2 / F17: Verify that build_gru_sequences strictly rejects windows and targets containing NaNs."""
+        df_with_nan = self.synth_df.copy()
+        # Introduce NaNs in CPU at specific rows: 15, 16, 17
+        df_with_nan.loc[15:17, 'cpu'] = np.nan
+        feat_df = extract_features_single_machine(df_with_nan)
+        
+        # Build sequences over [12, 35) with seq_len=12
+        seq_len = 12
+        X, y, indices = build_gru_sequences(
+            feat_df, BASE_FEATURES, 'cpu',
+            split_start=12, split_end=35, seq_len=seq_len
+        )
+        
+        # 1. Neither X nor y must contain ANY NaNs
+        self.assertFalse(np.isnan(X).any(), "Extracted GRU sequences X must not contain NaNs.")
+        self.assertFalse(np.isnan(y).any(), "Extracted GRU targets y must not contain NaNs.")
+        
+        # 2. Targets at t=15, 16, 17 are NaN, so indices 15, 16, 17 must be excluded
+        for bad_t in [15, 16, 17]:
+            self.assertNotIn(bad_t, indices, f"Timestep {bad_t} with NaN target should be excluded.")
+            
+        # 3. Any window overlapping rows 15, 16, 17 must also be excluded
+        # For target t, the window is [t-seq_len : t]. If t in [18, 29], t-12 <= 17 and t > 15, overlapping the NaN gap!
+        for t_overlap in range(18, 18 + seq_len):
+            if t_overlap < 35:
+                self.assertNotIn(
+                    t_overlap, indices,
+                    f"Timestep {t_overlap} whose window overlaps NaN should be excluded from sequences."
+                )
 
 
 if __name__ == '__main__':
