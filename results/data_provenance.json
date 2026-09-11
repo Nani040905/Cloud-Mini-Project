@@ -3,7 +3,7 @@
   "selected_machine_count": 100,
   "selected_machine_ids_hash": "a578f31bd64f7fba",
   "coverage_report_exists": true,
-  "run_config_git_commit": "96c0f21",
-  "run_timestamp": "2026-09-11T04:41:40.978699Z",
+  "run_config_git_commit": "a04bf64",
+  "run_timestamp": "2026-09-11T12:40:42.351017Z",
   "note": "See data/processed/google/dataset_coverage_report.txt for full temporal coverage, NaN fraction, and machine eligibility statistics."
 }
