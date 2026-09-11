@@ -132,8 +132,8 @@ def build_gru_sequences(feature_df: pd.DataFrame, feature_cols: list, target_col
     return np.array(X_list, dtype=np.float32), np.array(y_list, dtype=np.float32), np.array(indices, dtype=int)
 
 
-def process_all_selected_machines(series_dir: str, selected_json: str, output_base_dir: str):
-    """Generate and save feature parquets for all selected machines."""
+def process_all_selected_machines(series_dir: str, selected_json: str, output_base_dir: str, days: float = None):
+    """Generate and save feature parquets for all selected machines with optional horizon truncation."""
     with open(selected_json, 'r') as f:
         chosen_mids = json.load(f)
 
@@ -142,7 +142,11 @@ def process_all_selected_machines(series_dir: str, selected_json: str, output_ba
     os.makedirs(out_base, exist_ok=True)
     os.makedirs(out_ext, exist_ok=True)
 
-    print(f"Extracting features for {len(chosen_mids)} selected machines...")
+    max_bins = int(days * 288) if days is not None else None
+    if max_bins is not None:
+        print(f"Extracting features truncated to {days:.1f} days ({max_bins} bins) for {len(chosen_mids)} machines...")
+    else:
+        print(f"Extracting features for {len(chosen_mids)} selected machines...")
     split_info = {}
 
     for mid in chosen_mids:
@@ -164,9 +168,10 @@ def process_all_selected_machines(series_dir: str, selected_json: str, output_ba
             os.path.join(out_ext, f"{mid}.parquet"), index=False
         )
 
-        splits = get_split_indices(len(feat_df))
+        total_len = min(len(feat_df), max_bins) if max_bins is not None else len(feat_df)
+        splits = get_split_indices(total_len)
         split_info[str(mid)] = {
-            'total_bins': len(feat_df),
+            'total_bins': total_len,
             'train_range': splits['train'],
             'val_range': splits['val'],
             'test_range': splits['test']
@@ -185,6 +190,7 @@ def main():
     parser.add_argument("--series_dir", type=str, default="data/processed/google/machine_series")
     parser.add_argument("--selected_json", type=str, default="data/selected_machines.json")
     parser.add_argument("--output_dir", type=str, default="data/processed/google")
+    parser.add_argument("--days", type=float, default=None, help="Truncate time horizon to N days (e.g. 10.0 = 2880 bins)")
     args = parser.parse_args()
 
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -192,7 +198,7 @@ def main():
     selected_json = os.path.join(project_root, args.selected_json)
     output_dir = os.path.join(project_root, args.output_dir)
 
-    process_all_selected_machines(series_dir, selected_json, output_dir)
+    process_all_selected_machines(series_dir, selected_json, output_dir, days=args.days)
 
 
 if __name__ == "__main__":
