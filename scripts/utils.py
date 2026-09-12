@@ -21,7 +21,10 @@ N_MACHINES_FINAL = 100     # Evaluation sample size
 ALPHA_GRID = np.linspace(0.0, 1.0, 11)   # [0.0, 0.1, ..., 1.0] for fusion
 LAMBDA_GRID = np.linspace(0.1, 0.9, 9)   # [0.1, 0.2, ..., 0.9] for U2 EWMA
 N_WINDOW_GRID = [20, 30, 50, 75, 100]    # Selector correlation windows
-CANDIDATE_BETAS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0, 18.0, 20.0]
+CANDIDATE_BETAS = [
+    0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0,
+    8.0, 10.0, 12.0, 14.0, 16.0, 18.0, 20.0, 25.0, 30.0, 35.0, 40.0, 50.0
+]
 
 # Standard Project Paths
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
