@@ -2,35 +2,18 @@
 scripts/phase2/reliability.py
 
 Phase 2.1: SLA Reliability Decomposition and Incident Analysis.
-Implements:
-1. Granular per-machine reliability decomposition:
-   - total_test_bins, breach_bins, breach_rate
-   - overshoot_bins, overshoot_rate
-   - grace_zone_bins, grace_zone_rate
-   - mean_overprovisioning, mean_underprovisioning, total_underprovisioning
-   - mean_shortfall_severity, p95_shortfall_severity, max_shortfall_severity
-2. Temporal incident run-length analysis:
-   - Consecutive breach bins for the SAME machine
-   - Incident durations in bins and minutes (duration_bins * 5)
-   - Incident frequency distributions (1 bin, 2-3 bins, 4-10 bins, >10 bins)
-   - Cluster-level metrics: total incidents, incidents per test day, longest incident streak (D_max)
-3. Conditional shortfall severity:
-   - S_t = max(0, y_t - (A_t + GRACE_BAND)) conditional on breach
-   - mean, median, p95, p99, max severity
-4. Publication-quality visual diagnostics:
-   - incident_duration_distribution.png
-   - shortfall_severity_distribution.png
-   - per_machine_breach_rate.png
-
-Strict Invariants:
-- Breach definition strictly preserved: y_t > A_t + 0.005 (GRACE_BAND = 0.005).
-- Terminology: "five-minute workload-capacity breach events" (not "service outages").
-- Uses existing Phase 1 test predictions (zero retraining).
+Pure analysis layer over authoritative Phase 1 test allocations:
+- Consumes results/phase2/phase1_test_allocations.parquet directly (no hardcoded betas)
+- Evaluates per-machine reliability decomposition across all 13 required metrics
+- Performs temporal incident run-length analysis (consecutive breaches for same machine)
+- Evaluates conditional shortfall severity S_t = max(0, y_t - (A_t + 0.005))
+- Generates publication-quality diagnostic figures
+- Produces per-machine head-to-head comparison table between Adaptive U* and Static U2
+  (sorted by largest U* disadvantage and largest U* advantage)
 """
 
 import os
 import sys
-import json
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -41,8 +24,10 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from scripts.utils import (
-    GRACE_BAND, RESULTS_DIR, FIGURES_DIR, UNCERTAINTY_DIR,
-    SELECTED_MACHINES_PATH, SPLIT_INFO_PATH, SERIES_DIR
+    GRACE_BAND, RESULTS_DIR, FIGURES_DIR
+)
+from scripts.phase2.build_authoritative_allocations import (
+    build_authoritative_phase1_allocations
 )
 
 PHASE2_RESULTS_DIR = os.path.join(RESULTS_DIR, "phase2")
@@ -69,14 +54,11 @@ def compute_machine_incidents(bin_indices: np.ndarray, breach_mask: np.ndarray) 
     for b_idx, is_breach in zip(bin_indices, breach_mask):
         if is_breach:
             if current_duration == 0:
-                # Start new incident
                 current_duration = 1
             else:
-                # Check consecutive continuity
                 if b_idx == prev_bin + 1:
                     current_duration += 1
                 else:
-                    # Missing gap intervened; close prior incident and start new one
                     durations.append(current_duration)
                     current_duration = 1
         else:
@@ -85,7 +67,6 @@ def compute_machine_incidents(bin_indices: np.ndarray, breach_mask: np.ndarray) 
                 current_duration = 0
         prev_bin = b_idx
 
-    # Close trailing incident at boundary if active
     if current_duration > 0:
         durations.append(current_duration)
 
@@ -215,91 +196,65 @@ def compute_machine_reliability_metrics(y_true: np.ndarray, a_alloc: np.ndarray,
     return metrics, durations, severities
 
 
-def run_reliability_decomposition(test_selector_path: str = None,
+def run_reliability_decomposition(allocations_path: str = None,
                                   output_dir: str = PHASE2_RESULTS_DIR,
                                   figures_dir: str = PHASE2_FIGURES_DIR):
     """
-    Executes Phase 2.1 Reliability Decomposition across all benchmark policies:
-    Static U2, Adaptive U*, Static U1, Static U3, and Fixed Baselines (B3, B1, B2, B0).
+    Executes Phase 2.1 Reliability Decomposition by consuming authoritative Phase 1 test allocations directly.
+    Pure analysis layer: Zero hardcoded beta multipliers.
     """
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(figures_dir, exist_ok=True)
 
-    test_path = test_selector_path or os.path.join(UNCERTAINTY_DIR, "selector_test.csv")
-    print(f"[Phase 2.1] Loading test predictions from: {test_path}")
-    test_df = pd.read_csv(test_path)
+    # 1. Load authoritative Phase 1 test allocations artifact
+    alloc_path = allocations_path
+    if not alloc_path:
+        default_parquet = os.path.join(output_dir, "phase1_test_allocations.parquet")
+        default_csv = os.path.join(output_dir, "phase1_test_allocations.csv")
+        if os.path.exists(default_parquet):
+            alloc_path = default_parquet
+        elif os.path.exists(default_csv):
+            alloc_path = default_csv
+        else:
+            print("[Phase 2.1] Authoritative allocations artifact not found. Building now...")
+            build_authoritative_phase1_allocations(output_dir)
+            alloc_path = default_parquet
 
-    # Load machine metadata and split info for baseline series extraction
-    with open(SELECTED_MACHINES_PATH, 'r') as f:
-        selected_mids = json.load(f)
-    with open(SPLIT_INFO_PATH, 'r') as f:
-        split_info = json.load(f)
+    print(f"[Phase 2.1 Pure Analysis Layer] Consuming authoritative allocations from: {alloc_path}")
+    if alloc_path.endswith('.parquet'):
+        alloc_df = pd.read_parquet(alloc_path)
+    else:
+        alloc_df = pd.read_csv(alloc_path)
 
-    # Verification: test duration in days
-    # Test split has 1,253 bins of 5 minutes: 1253 * 5 / 1440 = 4.35069 days
-    total_test_bins_horizon = 1253
-    test_days = total_test_bins_horizon * 5.0 / 1440.0
-    n_machines = len(selected_mids)
+    n_records = len(alloc_df)
+    n_machines = alloc_df['machine_id'].nunique()
+    policies = sorted(alloc_df['policy'].unique())
+    print(f"[Phase 2.1] Loaded {n_records} allocation records across {n_machines} machines and {len(policies)} policies:")
+    for p in policies:
+        sub = alloc_df[alloc_df['policy'] == p]
+        beta_val = sub['beta'].iloc[0] if 'beta' in sub.columns else np.nan
+        print(f"  - {p:22s}: {len(sub)} rows, beta = {beta_val}")
 
-    # Define all evaluation policies
-    # Uncertainty policies use the Phase 1 validation-calibrated beta multipliers
-    policies = [
-        ('Static_U2', 'fused_pred', 'U2', 5.0, False),
-        ('Adaptive_U_star', 'fused_pred', 'U_star', 8.0, False),
-        ('Static_U1', 'fused_pred', 'U1', 12.0, False),
-        ('Static_U3', 'fused_pred', 'U3', 14.0, False),
-        ('B3_Fusion_Fixed10', 'fused_pred', None, 1.10, True),
-        ('B1_GRU_Fixed10', 'gru_pred', None, 1.10, True),
-        ('B2_HoltWinters_Fixed10', 'hw_pred', None, 1.10, True),
-    ]
+    # Test horizon in days (1,253 bins of 5 min = 4.3507 days)
+    test_days = 1253 * 5.0 / 1440.0
 
     all_machine_metrics = []
-    cluster_incidents = {p[0]: [] for p in policies}
-    cluster_incidents['B0_Naive_Fixed10'] = []
-    cluster_severities = {p[0]: [] for p in policies}
-    cluster_severities['B0_Naive_Fixed10'] = []
+    cluster_incidents = {p: [] for p in policies}
+    cluster_severities = {p: [] for p in policies}
 
-    print(f"[Phase 2.1] Evaluating {len(policies) + 1} policies across {n_machines} machines...")
-
-    # 1. Evaluate uncertainty policies and GRU/HW/Fusion baselines
-    for pol_name, pred_col, u_col, mult, is_fixed in policies:
-        for mid, grp in test_df.groupby('machine_id'):
+    # Evaluate each policy and machine directly from the authoritative allocation artifact
+    for pol_name in policies:
+        pol_sub = alloc_df[alloc_df['policy'] == pol_name]
+        for mid, grp in pol_sub.groupby('machine_id'):
             yt = grp['y_true'].values
-            yp = grp[pred_col].values
+            al = grp['allocation'].values
             bins = grp['bin_idx'].values
 
-            if is_fixed:
-                ar = yp * mult
-            else:
-                u_vals = grp[u_col].values
-                ar = yp + mult * u_vals
-
-            al = np.clip(ar, 0.0, 1.0)
             m, durs, sevs = compute_machine_reliability_metrics(yt, al, bins, mid, pol_name)
             all_machine_metrics.append(m)
             cluster_incidents[pol_name].extend(durs)
             if len(sevs) > 0:
                 cluster_severities[pol_name].extend(sevs.tolist())
-
-    # 2. Evaluate B0 Naive baseline from machine series
-    pol_name = 'B0_Naive_Fixed10'
-    for mid in selected_mids:
-        series_path = os.path.join(SERIES_DIR, f"{mid}.parquet")
-        if not os.path.exists(series_path):
-            continue
-        s = pd.read_parquet(series_path)['cpu']
-        t0, t1 = split_info[str(mid)]['test_range']
-        yt = s.iloc[t0:t1].values
-        bins = np.arange(t0, t1)
-
-        pred_b0 = s.shift(1).iloc[t0:t1].values
-        al = np.clip(pred_b0 * 1.10, 0.0, 1.0)
-
-        m, durs, sevs = compute_machine_reliability_metrics(yt, al, bins, mid, pol_name)
-        all_machine_metrics.append(m)
-        cluster_incidents[pol_name].extend(durs)
-        if len(sevs) > 0:
-            cluster_severities[pol_name].extend(sevs.tolist())
 
     # Convert to DataFrame
     decomp_df = pd.DataFrame(all_machine_metrics)
@@ -307,11 +262,9 @@ def run_reliability_decomposition(test_selector_path: str = None,
     decomp_df.to_csv(decomp_csv, index=False)
     print(f"[Phase 2.1] Saved per-machine reliability decomposition to: {decomp_csv}")
 
-    # 3. Cluster Incident Summary Table
+    # 2. Cluster Incident Summary Table
     incident_rows = []
-    all_eval_policies = [p[0] for p in policies] + ['B0_Naive_Fixed10']
-
-    for pol in all_eval_policies:
+    for pol in policies:
         durs = np.array(cluster_incidents[pol])
         n_inc = len(durs)
         if n_inc > 0:
@@ -358,9 +311,9 @@ def run_reliability_decomposition(test_selector_path: str = None,
     incident_summary_df.to_csv(incident_csv, index=False)
     print(f"[Phase 2.1] Saved cluster incident summary to: {incident_csv}")
 
-    # 4. Severity Summary Table (conditional on breach)
+    # 3. Severity Summary Table (conditional on breach)
     sev_rows = []
-    for pol in all_eval_policies:
+    for pol in policies:
         sevs = np.array(cluster_severities[pol])
         n_breach = len(sevs)
         if n_breach > 0:
@@ -387,15 +340,62 @@ def run_reliability_decomposition(test_selector_path: str = None,
     sev_summary_df.to_csv(sev_csv, index=False)
     print(f"[Phase 2.1] Saved shortfall severity summary to: {sev_csv}")
 
-    # 5. Generate Figures
+    # 4. Generate Additional Analysis: Per-Machine Comparison Table (Adaptive U* vs Static U2)
+    comp_df = generate_per_machine_comparison(decomp_df, output_dir)
+
+    # 5. Generate Diagnostic Figures
     generate_figures(decomp_df, cluster_incidents, cluster_severities, figures_dir)
 
-    return decomp_df, incident_summary_df, sev_summary_df
+    return decomp_df, incident_summary_df, sev_summary_df, comp_df
+
+
+def generate_per_machine_comparison(decomp_df: pd.DataFrame, output_dir: str) -> pd.DataFrame:
+    """
+    Generates head-to-head per-machine comparison table between Adaptive U* and Static U2:
+    - machine_id
+    - U2_breach_rate
+    - Ustar_breach_rate
+    - delta (Ustar_breach_rate - U2_breach_rate)
+    - U2_overprovision
+    - Ustar_overprovision
+    - delta_overprovision (Ustar_overprovision - U2_overprovision)
+    """
+    sub_u2 = decomp_df[decomp_df['policy'] == 'Static_U2'].set_index('machine_id')
+    sub_ustar = decomp_df[decomp_df['policy'] == 'Adaptive_U_star'].set_index('machine_id')
+
+    common_mids = sub_u2.index.intersection(sub_ustar.index)
+
+    rows = []
+    for mid in common_mids:
+        u2_br = float(sub_u2.loc[mid, 'breach_rate'])
+        ustar_br = float(sub_ustar.loc[mid, 'breach_rate'])
+        delta_br = float(ustar_br - u2_br)
+
+        u2_op = float(sub_u2.loc[mid, 'mean_overprovisioning'])
+        ustar_op = float(sub_ustar.loc[mid, 'mean_overprovisioning'])
+        delta_op = float(ustar_op - u2_op)
+
+        rows.append({
+            'machine_id': int(mid),
+            'U2_breach_rate': u2_br,
+            'Ustar_breach_rate': ustar_br,
+            'delta': delta_br,
+            'U2_overprovision': u2_op,
+            'Ustar_overprovision': ustar_op,
+            'delta_overprovision': delta_op
+        })
+
+    comp_df = pd.DataFrame(rows)
+    out_csv = os.path.join(output_dir, "machine_comparison_u2_vs_ustar.csv")
+    comp_df.to_csv(out_csv, index=False)
+    print(f"[Phase 2.1 Additional Analysis] Saved machine-level comparison table to: {out_csv}")
+
+    return comp_df
 
 
 def generate_figures(decomp_df: pd.DataFrame, cluster_incidents: dict,
                      cluster_severities: dict, figures_dir: str):
-    """Generates all three publication-quality diagnostic figures for Phase 2.1."""
+    """Generates publication-quality diagnostic figures for Phase 2.1."""
     plt.rcParams.update({
         'font.sans-serif': 'DejaVu Sans',
         'font.family': 'sans-serif',
@@ -404,29 +404,24 @@ def generate_figures(decomp_df: pd.DataFrame, cluster_incidents: dict,
         'axes.linewidth': 0.8
     })
 
-    # Color palette
     colors = {
-        'Static_U2': '#1f77b4',        # Blue
-        'Adaptive_U_star': '#ff7f0e',  # Orange
-        'Static_U1': '#2ca02c',        # Green
-        'Static_U3': '#d62728',        # Red
-        'B3_Fusion_Fixed10': '#9467bd',# Purple
-        'B0_Naive_Fixed10': '#8c564b'  # Brown
+        'Static_U2': '#1f77b4',
+        'Adaptive_U_star': '#ff7f0e',
+        'Static_U1': '#2ca02c',
+        'Static_U3': '#d62728',
+        'B3_Fusion_Fixed10': '#9467bd',
+        'B0_Naive_Fixed10': '#8c564b'
     }
 
-    # --------------------------------------------------------------------------
     # Figure 1: Incident Duration Distribution
-    # --------------------------------------------------------------------------
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5.5))
-
-    # Left: Binned duration categories
     categories = ['1 bin (5m)', '2–3 bins (10–15m)', '4–10 bins (20–50m)', '>10 bins (>50m)']
     bar_width = 0.18
     target_policies = ['Static_U2', 'Adaptive_U_star', 'Static_U1', 'Static_U3']
 
     x = np.arange(len(categories))
     for i, pol in enumerate(target_policies):
-        durs = np.array(cluster_incidents[pol])
+        durs = np.array(cluster_incidents.get(pol, []))
         if len(durs) > 0:
             fractions = [
                 np.mean(durs == 1) * 100,
@@ -449,9 +444,8 @@ def generate_figures(decomp_df: pd.DataFrame, cluster_incidents: dict,
     ax1.grid(axis='y', linestyle='--', alpha=0.4)
     ax1.legend(frameon=True, facecolor='white', framealpha=0.9, fontsize=9.5)
 
-    # Right: Empirical CDF of duration in minutes
     for pol in target_policies:
-        durs = np.array(cluster_incidents[pol])
+        durs = np.array(cluster_incidents.get(pol, []))
         if len(durs) > 0:
             sorted_mins = np.sort(durs * 5.0)
             ecdf = np.arange(1, len(sorted_mins) + 1) / len(sorted_mins)
@@ -471,15 +465,11 @@ def generate_figures(decomp_df: pd.DataFrame, cluster_incidents: dict,
     plt.close()
     print(f"[Phase 2.1] Saved figure: {f1_path}")
 
-    # --------------------------------------------------------------------------
-    # Figure 2: Shortfall Severity Distribution conditional on breach
-    # --------------------------------------------------------------------------
+    # Figure 2: Shortfall Severity Distribution
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5.5))
-
-    # Left: Boxplot of conditional shortfall severity
-    sev_data = [np.array(cluster_severities[p]) for p in target_policies]
-    # Filter empty
+    sev_data = [np.array(cluster_severities.get(p, [])) for p in target_policies]
     clean_labels = [p.replace('_', ' ') for p in target_policies]
+
     bp = ax1.boxplot(sev_data, patch_artist=True, showmeans=True,
                      meanprops={'marker': '^', 'markerfacecolor': 'gold', 'markeredgecolor': 'black', 'markersize': 8},
                      medianprops={'color': 'black', 'linewidth': 1.5})
@@ -494,9 +484,8 @@ def generate_figures(decomp_df: pd.DataFrame, cluster_incidents: dict,
     ax1.set_title('A. Conditional Shortfall Severity Distribution', fontweight='bold', pad=10)
     ax1.grid(axis='y', linestyle='--', alpha=0.4)
 
-    # Right: Histograms of shortfall severity
     for pol in target_policies:
-        sevs = np.array(cluster_severities[pol])
+        sevs = np.array(cluster_severities.get(pol, []))
         if len(sevs) > 0:
             weights = np.ones_like(sevs) / len(sevs)
             ax2.hist(sevs, bins=30, range=(0, 0.15), weights=weights, histtype='step',
@@ -514,20 +503,15 @@ def generate_figures(decomp_df: pd.DataFrame, cluster_incidents: dict,
     plt.close()
     print(f"[Phase 2.1] Saved figure: {f2_path}")
 
-    # --------------------------------------------------------------------------
-    # Figure 3: Per-Machine Breach Rate Distribution (Tail Skewness)
-    # --------------------------------------------------------------------------
+    # Figure 3: Per-Machine Breach Rate Distribution
     fig, ax = plt.subplots(figsize=(9, 5.5))
-
-    for pol in ['Static_U2', 'Adaptive_U_star', 'Static_U1', 'Static_U3']:
+    for pol in target_policies:
         sub = decomp_df[decomp_df['policy'] == pol]
-        rates = np.sort(sub['breach_rate'].values) * 100.0  # Percentage
+        rates = np.sort(sub['breach_rate'].values) * 100.0
         ax.plot(np.arange(1, len(rates) + 1), rates, marker='o', markersize=3,
                 linewidth=1.8, label=pol.replace('_', ' '), color=colors.get(pol, '#333333'))
 
-    # Draw SLA target line (1.0%)
     ax.axhline(1.0, color='red', linestyle='--', linewidth=1.5, label='SLA Target Budget (1.0%)')
-
     ax.set_xlabel('Rank-Ordered Machine Index (1 to 100)', fontweight='bold')
     ax.set_ylabel('Empirical Test SLA Breach Rate (%)', fontweight='bold')
     ax.set_title('Per-Machine Breach Rate Distribution Across 100 Benchmark Servers', fontweight='bold', pad=10)

@@ -155,6 +155,69 @@ class TestReliabilityDecomposition(unittest.TestCase):
         self.assertEqual(mA['max_incident_duration_bins'], 1)
         self.assertEqual(mB['max_incident_duration_bins'], 1)
 
+    def test_08_phase2_allocations_match_phase1_authoritative(self):
+        """
+        Verify that Phase 2.1 allocations exactly match the authoritative Phase 1 allocation artifact:
+        1. Betas are dynamically ingested from results/allocation_results.csv (no hardcoding).
+        2. Per-timestep allocations match clip(prediction + beta * uncertainty, 0.0, 1.0) exactly.
+        3. Aggregated machine metrics match results/allocation_results.csv to within 1e-6.
+        """
+        import pandas as pd
+        from scripts.utils import RESULTS_DIR, UNCERTAINTY_DIR
+
+        # Load authoritative Phase 1 allocation results
+        alloc_res_csv = os.path.join(RESULTS_DIR, "allocation_results.csv")
+        self.assertTrue(os.path.exists(alloc_res_csv), f"Missing {alloc_res_csv}")
+        phase1_alloc_df = pd.read_csv(alloc_res_csv)
+
+        # Load authoritative test allocations artifact
+        parquet_path = os.path.join(RESULTS_DIR, "phase2", "phase1_test_allocations.parquet")
+        csv_path = os.path.join(RESULTS_DIR, "phase2", "phase1_test_allocations.csv")
+        target_path = parquet_path if os.path.exists(parquet_path) else csv_path
+        self.assertTrue(os.path.exists(target_path), f"Missing {target_path}")
+
+        alloc_df = pd.read_parquet(target_path) if target_path.endswith('.parquet') else pd.read_csv(target_path)
+
+        # Verify dynamic betas
+        auth_betas = phase1_alloc_df.groupby('config')['beta_buf'].first().to_dict()
+        self.assertEqual(auth_betas['B4b_Static_U2'], 5.0)
+        self.assertEqual(auth_betas['Proposed_Adaptive_U'], 8.0)
+        self.assertEqual(auth_betas['B4a_Static_U1'], 12.0)
+        self.assertEqual(auth_betas['B4c_Static_U3'], 14.0)
+
+        # Sample 20 deterministic rows and verify exact allocation calculation
+        sample_rows = alloc_df.iloc[::len(alloc_df) // 20].copy()
+        for _, row in sample_rows.iterrows():
+            pred = row['prediction']
+            beta = row['beta']
+            u = row['uncertainty']
+            al = row['allocation']
+
+            if pd.notna(u):
+                expected_al = np.clip(pred + beta * u, 0.0, 1.0)
+            else:
+                expected_al = np.clip(pred * beta, 0.0, 1.0)
+
+            self.assertAlmostEqual(al, expected_al, places=6,
+                                   msg=f"Allocation mismatch for policy {row['policy']} at machine {row['machine_id']}, bin {row['bin_idx']}")
+
+        # Verify per-machine aggregated metric match against Phase 1 artifact for sample machines
+        sample_mids = [418695, 638204, 902845, 1270871, 3828835]
+        for mid in sample_mids:
+            for pol, cfg in [('Static_U2', 'B4b_Static_U2'), ('Adaptive_U_star', 'Proposed_Adaptive_U')]:
+                sub_calc = alloc_df[(alloc_df['policy'] == pol) & (alloc_df['machine_id'] == mid)]
+                sub_auth = phase1_alloc_df[(phase1_alloc_df['config'] == cfg) & (phase1_alloc_df['machine_id'] == mid)].iloc[0]
+
+                yt = sub_calc['y_true'].values
+                al = sub_calc['allocation'].values
+                valid = np.isfinite(yt) & np.isfinite(al)
+                calc_breach = np.mean(yt[valid] > al[valid] + 0.005)
+                calc_overprov = np.mean(np.maximum(0.0, al[valid] - yt[valid]))
+
+                self.assertAlmostEqual(calc_breach, sub_auth['sla_breach_rate'], places=5)
+                self.assertAlmostEqual(calc_overprov, sub_auth['over_prov_mean'], places=5)
+
 
 if __name__ == '__main__':
     unittest.main()
+

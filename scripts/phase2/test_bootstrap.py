@@ -72,13 +72,13 @@ class TestBootstrapStatisticalUncertainty(unittest.TestCase):
         self.assertEqual(res['median_delta'], 0.0)
         self.assertEqual(res['bootstrap_ci_2.5'], 0.0)
         self.assertEqual(res['bootstrap_ci_97.5'], 0.0)
-        self.assertFalse(res['statistically_significant'])
+        self.assertFalse(res['ci_excludes_zero'])
         self.assertEqual(res['machines_tied'], self.n_machines)
         self.assertEqual(res['machines_A_better'], 0)
         self.assertEqual(res['machines_B_better'], 0)
 
     def test_04_constant_shift_detection(self):
-        """Adding a constant shift c to all machines must produce Delta=c, CI centered at c, and significance=True."""
+        """Adding a constant shift c to all machines must produce Delta=c, CI centered at c, and ci_excludes_zero=True."""
         shift = 0.05
         df_b = self.df_a.copy()
         df_b['breach_rate'] = df_b['breach_rate'] + shift
@@ -92,7 +92,7 @@ class TestBootstrapStatisticalUncertainty(unittest.TestCase):
         self.assertAlmostEqual(res['median_delta'], shift, places=5)
         # CI must not include 0
         self.assertTrue(res['bootstrap_ci_2.5'] > 0.0)
-        self.assertTrue(res['statistically_significant'])
+        self.assertTrue(res['ci_excludes_zero'])
         self.assertEqual(res['machines_B_better'], self.n_machines)
         self.assertEqual(res['machines_A_better'], 0)
 

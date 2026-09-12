@@ -139,16 +139,8 @@ def run_paired_difference_bootstrap(df_policy_a: pd.DataFrame,
     ci_lower, ci_upper = np.percentile(boot_means, [2.5, 97.5])
     ci_med_lower, ci_med_upper = np.percentile(boot_medians, [2.5, 97.5])
 
-    # Empirical two-tailed bootstrap p-value
-    # Proportion of bootstrap replicates with opposite sign to the point estimate
-    if point_mean >= 0:
-        p_val = 2.0 * float(np.mean(boot_means <= 0))
-    else:
-        p_val = 2.0 * float(np.mean(boot_means >= 0))
-    p_val = min(1.0, max(0.0, p_val))
-
-    # Statistically significant at 95% level iff 95% CI excludes 0
-    is_significant = not (ci_lower <= 0.0 <= ci_upper)
+    # Check whether 95% bootstrap CI excludes zero
+    ci_excludes_zero = not (ci_lower <= 0.0 <= ci_upper)
 
     return {
         'comparison': f"{name_a}_vs_{name_b}",
@@ -161,8 +153,7 @@ def run_paired_difference_bootstrap(df_policy_a: pd.DataFrame,
         'bootstrap_ci_97.5': float(ci_upper),
         'bootstrap_median_ci_2.5': float(ci_med_lower),
         'bootstrap_median_ci_97.5': float(ci_med_upper),
-        'p_value_bootstrap': float(p_val),
-        'statistically_significant': is_significant,
+        'ci_excludes_zero': ci_excludes_zero,
         'machines_A_better': machines_a_better,
         'machines_tied': machines_tied,
         'machines_B_better': machines_b_better
