@@ -163,7 +163,7 @@ $$\rho_{i, t} = \text{SpearmanRank}\left(U_{i, t-N : t-1}, \; \left| \hat{y} - y
 The dynamic allocation policy is formulated as:
 $$A_t = \min\left(1.0, \; \max\left(0.0, \; \hat{y}_t + \beta_{\text{buf}} U^*_t \right)\right)$$
 - **Constrained Calibration**: $\beta_{\text{buf}}$ is calibrated on the validation set to satisfy the strict 99% SLA compliance target ($\le 1.0\%$ breach budget):
-  $$\beta^* = \min \left\{ \beta \in [0.1, 20.0] \;:\; P(y_{\text{val}} > A_{\text{val}}(\beta) + 0.005) \le 1.0\% \right\}$$
+  $$\beta^* = \min \left\{ \beta \in [0.1, 50.0] \;:\; P(y_{\text{val}} > A_{\text{val}}(\beta) + 0.005) \le 1.0\% \right\}$$
 - **Grace Band**: A $0.005$ ($0.5\%$) tolerance accounts for micro-transient scheduler noise without penalizing the provider.
 
 ---

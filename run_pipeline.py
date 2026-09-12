@@ -211,13 +211,35 @@ def save_run_provenance():
     else:
         parts_processed_count = 0
 
+    # --- F36: Dynamically inspect actual time horizon and split ratios from split_info.json ---
+    split_info_path = os.path.join(PROJECT_ROOT, "data", "processed", "google", "split_info.json")
+    actual_split = [0.70, 0.15, 0.15]
+    total_bins_recorded = 8352
+    if os.path.exists(split_info_path):
+        try:
+            with open(split_info_path, "r") as f:
+                s_info = json.load(f)
+            if s_info:
+                sample_item = next(iter(s_info.values()))
+                total_bins_recorded = int(sample_item.get("total_bins", 8352))
+                tr_len = sample_item["train_range"][1] - sample_item["train_range"][0]
+                va_len = sample_item["val_range"][1] - sample_item["val_range"][0]
+                te_len = sample_item["test_range"][1] - sample_item["test_range"][0]
+                tot = tr_len + va_len + te_len
+                if tot > 0:
+                    actual_split = [round(tr_len / tot, 4), round(va_len / tot, 4), round(te_len / tot, 4)]
+        except Exception:
+            pass
+
     # --- Build run_config.json from actual code definitions ---
     run_config = {
         "dataset": "Google Cluster Trace v2 (2011)",
         "data_parts_processed_count": parts_processed_count,
         "machine_count": machine_count,
         "random_seed": 42,
-        "train_val_test_split": [0.70, 0.15, 0.15],
+        "time_horizon_bins": total_bins_recorded,
+        "time_horizon_days": round(total_bins_recorded / 288.0, 2),
+        "train_val_test_split": actual_split,
         "features_base": BASE_FEATURES,
         "features_extended": EXTENDED_FEATURES,
         "gru_config": {
@@ -248,6 +270,9 @@ def save_run_provenance():
         "data_parts_processed_count": parts_processed_count,
         "selected_machine_count": machine_count,
         "selected_machine_ids_hash": machine_ids_hash,
+        "time_horizon_bins": total_bins_recorded,
+        "time_horizon_days": round(total_bins_recorded / 288.0, 2),
+        "train_val_test_split": actual_split,
         "coverage_report_exists": os.path.exists(coverage_report),
         "run_config_git_commit": git_hash,
         "run_timestamp": datetime.datetime.utcnow().isoformat() + "Z",

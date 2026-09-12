@@ -12,9 +12,11 @@ Implements:
      Values are clipped strictly to [0.0, 1.0]. Any unclipped excess (A_raw > 1.0) is recorded
      as 'clip_fraction' to monitor capacity saturation risk.
 2. Vectorized Constrained Beta Calibration:
-   - Evaluates candidate beta in [0.1, 0.2, ..., 20.0] on the validation split.
+   - Evaluates candidate beta in [0.1, 0.2, ..., 50.0] on the validation split.
    - Objective:
      beta* = min { beta in Candidates : P(y_val > A_val(beta) + 0.005) <= 1.0% }  (99% SLA compliance)
+   - If no candidate satisfies the hard SLA budget, the configuration is explicitly flagged
+     as 'SLA_INFEASIBLE' while selecting the minimum-breach beta for diagnostic visibility.
    - Evaluated via vectorized broadcasting across all candidates simultaneously (instantaneous runtime).
 3. Benchmark Configurations Evaluated on Test Set:
    - B4a: Static U1 + Calibrated Beta
@@ -62,17 +64,20 @@ def calibrate_beta(val_df: pd.DataFrame, u_col: str) -> float:
         best_idx = int(np.argmin(breach_rates))
         best_beta = float(CANDIDATE_BETAS[best_idx])
         min_breach = float(breach_rates[best_idx])
+        sla_feasible = False
         print(
-            f"[Warning] No candidate beta strictly achieved validation SLA <= {SLA_TARGET:.1%} for {u_col}. "
-            f"Selected beta={best_beta} with lowest achievable breach rate: {min_breach:.2%}."
+            f"[SLA_INFEASIBLE] No candidate beta achieved validation SLA <= {SLA_TARGET:.1%} for {u_col}. "
+            f"Selected beta={best_beta:.2f} with lowest achievable breach rate: {min_breach:.2%}."
         )
-        return best_beta
+        return best_beta, sla_feasible
 
     best_beta = float(CANDIDATE_BETAS[qualifying_indices[0]])
-    return best_beta
+    sla_feasible = True
+    return best_beta, sla_feasible
 
 
-def evaluate_allocation_configuration(test_df: pd.DataFrame, u_col: str, beta: float, config_name: str):
+def evaluate_allocation_configuration(test_df: pd.DataFrame, u_col: str, beta: float,
+                                      config_name: str, sla_feasible: bool = True):
     """Evaluates an allocation policy across all machines on the test set."""
     per_machine = []
     for mid, grp in test_df.groupby('machine_id'):
@@ -84,7 +89,12 @@ def evaluate_allocation_configuration(test_df: pd.DataFrame, u_col: str, beta: f
         al = np.clip(ar, 0.0, 1.0)
 
         m = compute_metrics(yt, yp, ar, al)
-        m.update({'machine_id': mid, 'config': config_name, 'beta_buf': beta})
+        m.update({
+            'machine_id': mid,
+            'config': config_name,
+            'beta_buf': beta,
+            'sla_feasible': sla_feasible
+        })
         per_machine.append(m)
 
     return pd.DataFrame(per_machine)
@@ -124,11 +134,12 @@ def run_allocation(selector_log_path: str = None, output_dir: str = RESULTS_DIR,
     calibrated_betas = {}
 
     for u_col, cfg_name in configs:
-        beta = calibrate_beta(val_df, u_col)
+        beta, sla_feasible = calibrate_beta(val_df, u_col)
         calibrated_betas[cfg_name] = beta
-        print(f"Calibrated beta for {cfg_name:20s}: beta = {beta:.2f} (from validation U_star/uncertainty)")
+        status_tag = "FEASIBLE (SLA <= 1.0%)" if sla_feasible else "SLA_INFEASIBLE"
+        print(f"Calibrated beta for {cfg_name:20s}: beta = {beta:5.2f} [{status_tag}]")
 
-        res_df = evaluate_allocation_configuration(test_df, u_col, beta, cfg_name)
+        res_df = evaluate_allocation_configuration(test_df, u_col, beta, cfg_name, sla_feasible=sla_feasible)
         all_results.append(res_df)
 
     combined_df = pd.concat(all_results, ignore_index=True)

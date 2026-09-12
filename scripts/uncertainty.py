@@ -71,7 +71,14 @@ def compute_uncertainty_signals(fusion_preds_path: str, series_dir: str, output_
     for mid in preds_df['machine_id'].unique():
         if train_subset is not None and len(train_subset[train_subset['machine_id'] == mid]) > 0:
             tr_m = train_subset[train_subset['machine_id'] == mid]
-            last_err = abs(tr_m['fused_pred'].iloc[-1] - tr_m['y_true'].iloc[-1])
+            # F38: Anchor U2 EWMA strictly to last finite residual to avoid NaN contamination
+            valid_tr = tr_m[np.isfinite(tr_m['y_true']) & np.isfinite(tr_m['fused_pred'])]
+            if valid_tr.empty:
+                raise RuntimeError(
+                    f"Machine {mid}: No finite observed residuals in training split. "
+                    f"U2 requires finite training residual to initialize causally."
+                )
+            last_err = float(abs(valid_tr['fused_pred'].iloc[-1] - valid_tr['y_true'].iloc[-1]))
         else:
             raise RuntimeError(
                 f"Machine {mid}: Missing fused training predictions. "
@@ -115,9 +122,10 @@ def compute_uncertainty_signals(fusion_preds_path: str, series_dir: str, output_
         s_df = pd.read_parquet(series_path).sort_values('bin_idx')
 
         # U3: Rolling Volatility of previous 6 bins (strictly causal shift)
+        # F39: Retain NaN during warmup (< 6 points); fast_spearman will filter NaNs naturally
         u3_full = s_df['cpu'].shift(1).rolling(6).std().values
         bin_to_u3 = dict(zip(s_df['bin_idx'].values, u3_full))
-        m_df['U3'] = m_df['bin_idx'].map(bin_to_u3).fillna(0.0)
+        m_df['U3'] = m_df['bin_idx'].map(bin_to_u3)
 
         # U2 with boundary-safe causal handoff:
         # U2_val[0] initialized from last training error
@@ -134,7 +142,11 @@ def compute_uncertainty_signals(fusion_preds_path: str, series_dir: str, output_
 
         if len(val_rows) == 0:
             raise RuntimeError(f"Machine {mid}: Missing validation predictions to initialize U2_test causally.")
-        init_test_err = float(abs(val_rows['fused_pred'].iloc[-1] - val_rows['y_true'].iloc[-1]))
+        # F38: Anchor U2 test boundary strictly to last finite validation residual
+        valid_val = val_rows[np.isfinite(val_rows['y_true']) & np.isfinite(val_rows['fused_pred'])]
+        if valid_val.empty:
+            raise RuntimeError(f"Machine {mid}: No finite observed residuals in validation split to initialize U2_test.")
+        init_test_err = float(abs(valid_val['fused_pred'].iloc[-1] - valid_val['y_true'].iloc[-1]))
         u2_test = compute_u2_series(test_rows['y_true'].values, test_rows['fused_pred'].values, best_lambda, init_test_err)
 
         u2_combined = np.zeros(len(m_df))

@@ -71,7 +71,7 @@ def run_robustness_sweep(selector_log_path: str = UNCERTAINTY_LOG, output_csv: s
     print(f"Evaluated with Calibrated Adaptive Multiplier: beta* = {beta_star:.2f}")
 
     results = []
-    # Evaluate each cell in the 4x4 matrix
+    # Evaluate each cell in the 4-seed x 2-cohort subsample matrix (8 evaluations total)
     for seed in SEEDS:
         rng = np.random.default_rng(seed)
         shuffled_machines = rng.permutation(all_machines)

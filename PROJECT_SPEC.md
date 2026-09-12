@@ -120,9 +120,9 @@ ALL temporal operations are performed independently within each machine:
 - Unbounded Allocation: A_raw_t = ŷ_t + β_buf * U*_t
 - Physical Capacity Ceiling: A_t = clip(A_raw_t, 0.0, 1.0)
 - Buffer Calibration:
-  - β_buf in [0.1, 0.2, ..., 20.0]
+  - β_buf in [0.1, 0.2, ..., 50.0]
   - Pick smallest β_buf satisfying validation SLA breach rate <= 1.0% (99% SLA compliance target)
-  - Hard failure (RuntimeError) if no candidate β satisfies validation SLA
+  - Explicit SLA_INFEASIBLE classification if no candidate β satisfies validation SLA (minimum-breach beta selected for diagnostic reporting)
 - Clip Fraction Tracking: clip_fraction = mean(A_raw > 1.0); warn if > 1%
 
 ## 12. Baselines & Benchmark Configurations

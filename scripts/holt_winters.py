@@ -42,10 +42,41 @@ from utils import (
 )
 
 
+def get_clean_hw_series(series: pd.Series, min_len: int = 48) -> pd.Series:
+    """
+    Extracts contiguous historical observations adhering strictly to project missing-data policy (F33, F37):
+    - Gaps <= 2 bins are linearly interpolated.
+    - Long gaps (> 2 bins) remain strictly unobserved (never forward-filled or synthetically invented).
+    - If long gaps exist, extracts the most recent contiguous observation block ending at the split boundary,
+      or the longest valid contiguous block, guaranteeing authentic time geometry without synthetic interpolation.
+    """
+    s_clean = series.interpolate(method='linear', limit=2)
+    if not s_clean.isna().any():
+        return s_clean
+
+    valid_mask = ~s_clean.isna()
+    if not np.any(valid_mask):
+        return pd.Series([0.0] * min_len)
+
+    blocks = (~valid_mask).cumsum()[valid_mask]
+    counts = blocks.value_counts()
+
+    last_block_id = blocks.iloc[-1]
+    last_block_len = counts.get(last_block_id, 0)
+    chosen_id = last_block_id if last_block_len >= min_len else counts.index[0]
+
+    extracted = s_clean.loc[blocks[blocks == chosen_id].index]
+    if len(extracted) < min_len:
+        mean_v = float(extracted.mean()) if len(extracted) > 0 else 0.0
+        return pd.Series([mean_v] * min_len)
+    return extracted
+
+
 def fit_hw_single_machine(series: pd.Series, train_slice: tuple, val_slice: tuple, test_slice: tuple,
                           candidate_m: list = [48, 144, 288]):
     """
     Fits and forecasts Holt-Winters for a single machine with validation tuning and causal refit.
+    Adheres strictly to project missing-data policy: gaps <= 2 bins interpolated, long gaps uninvented.
     """
     tr_s, tr_e = train_slice
     va_s, va_e = val_slice
@@ -56,8 +87,8 @@ def fit_hw_single_machine(series: pd.Series, train_slice: tuple, val_slice: tupl
     test_data    = series.iloc[te_s:te_e]
     n_val, n_test = len(val_data), len(test_data)
 
-    # Maintain regular 5-minute grid spacing for model fitting across gaps
-    train_filled = train_series.interpolate(method='linear').bfill().ffill()
+    # Maintain regular 5-minute grid spacing for model fitting across clean contiguous observations (F33/F37)
+    train_filled = get_clean_hw_series(train_series, min_len=48)
     val_actual = val_data.values
     valid_mask = ~np.isnan(val_actual)
 
@@ -121,7 +152,7 @@ def fit_hw_single_machine(series: pd.Series, train_slice: tuple, val_slice: tupl
     # Causal Refit: Update level/trend/seasonality using combined [train + val]
     # --------------------------------------------------------------------------
     train_val_series = series.iloc[tr_s:va_e].copy()
-    train_val_filled = train_val_series.interpolate(method='linear').bfill().ffill()
+    train_val_filled = get_clean_hw_series(train_val_series, min_len=48)
     try:
         if best_m > 0 and len(train_val_filled) >= 2 * best_m:
             refit = ExponentialSmoothing(

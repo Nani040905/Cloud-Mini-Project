@@ -57,15 +57,29 @@ def run_fusion(hw_preds_path: str, gru_preds_path: str, output_dir: str):
         hw_val = val_df['hw_pred'].values
         gr_val = val_df['gru_pred'].values
 
-        # Vectorized evaluation: (11, N) matrix of predictions across all alpha candidates
-        alphas = np.array(ALPHA_GRID)[:, None]
-        candidates = alphas * hw_val + (1.0 - alphas) * gr_val
-        maes = np.mean(np.abs(candidates - yt_val), axis=1)
+        # F32: Explicit finite masking ensuring NaNs do not invalidate MAE evaluation
+        # and cause np.argmin to arbitrarily default to index 0 (alpha=0.0).
+        valid = (
+            np.isfinite(yt_val) &
+            np.isfinite(hw_val) &
+            np.isfinite(gr_val)
+        )
+        if not np.any(valid):
+            raise RuntimeError("No valid finite validation observations available for forecast fusion tuning.")
 
-        best_idx = int(np.argmin(maes))
+        yt_clean = yt_val[valid]
+        hw_clean = hw_val[valid]
+        gr_clean = gr_val[valid]
+
+        # Vectorized evaluation: (11, N_valid) matrix of predictions across all alpha candidates
+        alphas = np.array(ALPHA_GRID)[:, None]
+        candidates = alphas * hw_clean + (1.0 - alphas) * gr_clean
+        maes = np.mean(np.abs(candidates - yt_clean), axis=1)
+
+        best_idx = int(np.nanargmin(maes))
         best_alpha = float(ALPHA_GRID[best_idx])
         best_val_mae = float(maes[best_idx])
-        print(f"Optimal fusion parameter: alpha_f = {best_alpha:.1f} (Validation MAE = {best_val_mae:.4f})")
+        print(f"Optimal fusion parameter: alpha_f = {best_alpha:.1f} (Validation MAE = {best_val_mae:.4f} across {np.sum(valid):,} valid points)")
     else:
         print("[Notice] Using default equal-weighted fusion: alpha_f = 0.5")
 

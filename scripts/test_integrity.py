@@ -327,6 +327,97 @@ class TestExperimentalIntegrity(unittest.TestCase):
                                      alloc_results_path=missing_alloc)
             self.assertIn("nonexistent_alloc.csv", str(ctx.exception))
 
+    def test_13_fusion_nan_handling_and_safe_argmin(self):
+        """F32: Verify fusion alpha-tuning masks NaNs so np.argmin does not default to alpha=0.0."""
+        from fusion import run_fusion
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hw_csv = os.path.join(tmpdir, "hw.csv")
+            gru_csv = os.path.join(tmpdir, "gru.csv")
+
+            # Create data with some NaNs in validation split actuals
+            # HW prediction is closer to actuals on valid rows: HW error = 0.01, GRU error = 0.20
+            # If NaNs were not masked, all MAEs would be NaN and argmin would default to alpha=0.0 (100% GRU).
+            # With finite masking, alpha=1.0 (100% HW) must be selected!
+            hw_data = pd.DataFrame({
+                'machine_id': [1, 1, 1, 1],
+                'split': ['val', 'val', 'test', 'test'],
+                'bin_idx': [100, 101, 200, 201],
+                'y_true': [0.50, np.nan, 0.50, 0.50],
+                'hw_pred': [0.51, 0.51, 0.51, 0.51]
+            })
+            gru_data = pd.DataFrame({
+                'machine_id': [1, 1, 1, 1],
+                'split': ['val', 'val', 'test', 'test'],
+                'bin_idx': [100, 101, 200, 201],
+                'y_true': [0.50, np.nan, 0.50, 0.50],
+                'gru_pred': [0.70, 0.70, 0.70, 0.70]
+            })
+            hw_data.to_csv(hw_csv, index=False)
+            gru_data.to_csv(gru_csv, index=False)
+
+            run_fusion(hw_csv, gru_csv, tmpdir)
+            metrics = pd.read_csv(os.path.join(tmpdir, "fusion_metrics.csv"))
+            self.assertEqual(metrics['alpha_f'].iloc[0], 1.0)
+
+    def test_14_u2_finite_boundary_anchor(self):
+        """F38: Verify U2 EWMA initialization anchors strictly to the last finite residual when boundary row is NaN."""
+        from uncertainty import compute_uncertainty_signals
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            preds_csv = os.path.join(tmpdir, "fused.csv")
+            preds_df = pd.DataFrame({
+                'machine_id': [1, 1, 1, 1],
+                'split': ['train', 'train', 'val', 'test'],
+                'bin_idx': [100, 101, 102, 103],
+                'y_true': [0.40, np.nan, 0.50, 0.55],
+                'hw_pred': [0.42, 0.42, 0.52, 0.56],
+                'gru_pred': [0.41, 0.41, 0.51, 0.54],
+                'fused_pred': [0.41, 0.41, 0.51, 0.54]
+            })
+            preds_df.to_csv(preds_csv, index=False)
+
+            s_dir = os.path.join(tmpdir, "series")
+            os.makedirs(s_dir, exist_ok=True)
+            pd.DataFrame({
+                'bin_idx': [100, 101, 102, 103],
+                'cpu': [0.40, 0.40, 0.50, 0.55]
+            }).to_parquet(os.path.join(s_dir, "1.parquet"))
+
+            compute_uncertainty_signals(preds_csv, s_dir, tmpdir)
+            unc_df = pd.read_csv(os.path.join(tmpdir, "uncertainty.csv"))
+            self.assertFalse(np.isnan(unc_df['U2'].values).any())
+            val_u2 = unc_df[unc_df['split'] == 'val']['U2'].iloc[0]
+            self.assertAlmostEqual(val_u2, 0.01, places=4)
+
+    def test_15_hw_long_gaps_not_forward_filled(self):
+        """F33/F37: Verify get_clean_hw_series does not forward-fill or synthesize continuous data across long gaps (> 2)."""
+        from holt_winters import get_clean_hw_series
+
+        s = pd.Series([0.2] * 50 + [np.nan] * 10 + [0.3] * 60)
+        clean = get_clean_hw_series(s, min_len=48)
+        self.assertEqual(len(clean), 60)
+        self.assertEqual(clean.isna().sum(), 0)
+        self.assertTrue((clean == 0.3).all())
+
+    def test_16_beta_sla_infeasibility_flagging(self):
+        """F34: Verify calibrate_beta flags sla_feasible=False when target <= 1.0% cannot be met."""
+        from allocation import calibrate_beta
+
+        val_df = pd.DataFrame({
+            'y_true': [0.40] * 50 + [0.90] * 50,
+            'fused_pred': [0.10] * 100,
+            'U1': [0.01] * 100,
+            'machine_id': [1] * 100,
+            'split': ['val'] * 100
+        })
+
+        best_beta, sla_feasible = calibrate_beta(val_df, 'U1')
+        self.assertFalse(sla_feasible)
+        self.assertEqual(best_beta, 30.0)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
