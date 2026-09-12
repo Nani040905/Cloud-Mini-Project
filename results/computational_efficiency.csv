@@ -1,7 +1,7 @@
 Component,Parameters,Inference Latency,Memory Footprint
 Additive Holt-Winters (B2),N/A,< 0.050 ms,~12.4 MB
-Global GRU — Base Tier (7 feat),"3,969",0.591 ms / sample,~18.6 MB
-Global GRU — Extended Tier (15 feat),"4,737",0.584 ms / sample,~21.2 MB
+Global GRU — Base Tier (7 feat),"3,969",0.367 ms / sample,~18.6 MB
+Global GRU — Extended Tier (15 feat),"4,737",0.387 ms / sample,~21.2 MB
 Convex Forecast Fusion (B3),N/A,< 0.010 ms,~8.2 MB
 Tri-Factor Uncertainty Engine,N/A,< 0.020 ms,~14.5 MB
 Adaptive Reliability Selector,N/A,< 0.030 ms,~11.0 MB

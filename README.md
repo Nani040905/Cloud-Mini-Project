@@ -343,21 +343,21 @@ Evaluated on **100 production machines** from the Google Cluster Trace across co
 
 | Configuration | Machines | MAE (Macro 95% CI) | RMSE (Macro 95% CI) | SLA Breach (Macro) | SLA Breach (Pooled) | Overshoot (Macro) | Over-Prov Mean | Under-Prov Mean | Clip Fraction |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| B0_Naive | 100 | 0.0313 +/- 0.0027 | 0.0457 +/- 0.0035 | 20.77% +/- 1.19% | 20.79% | 25.02% | 0.0317 +/- 0.0023 | 0.0090 +/- 0.0010 | 0.00% |
-| B0c_MovingAverage_w6 | 100 | 0.0398 +/- 0.0031 | 0.0557 +/- 0.0039 | 24.59% +/- 1.29% | 24.58% | 28.25% | 0.0352 +/- 0.0024 | 0.0121 +/- 0.0011 | 0.00% |
-| B1_GRU_Base | 100 | 0.0333 +/- 0.0025 | 0.0446 +/- 0.0031 | 21.14% +/- 1.50% | 21.12% | 24.55% | 0.0289 +/- 0.0011 | 0.0085 +/- 0.0010 | 0.00% |
-| B1_GRU_Extended | 100 | 0.0333 +/- 0.0025 | 0.0446 +/- 0.0031 | 22.31% +/- 1.54% | 22.29% | 26.00% | 0.0277 +/- 0.0012 | 0.0089 +/- 0.0010 | 0.00% |
-| B2_HoltWinters | 100 | 0.1623 +/- 0.0141 | 0.1824 +/- 0.0148 | 8.61% +/- 2.22% | 8.66% | 9.59% | 0.1860 +/- 0.0173 | 0.0061 +/- 0.0026 | 0.00% |
-| B3_Fusion | 100 | 0.0333 +/- 0.0025 | 0.0446 +/- 0.0031 | 21.14% +/- 1.50% | 21.12% | 24.55% | 0.0289 +/- 0.0011 | 0.0085 +/- 0.0010 | 0.00% |
-| B4a_Static_U1 | 100 | 0.0333 +/- 0.0025 | 0.0446 +/- 0.0031 | 0.43% +/- 0.08% | 0.43% | 0.51% | 0.7000 +/- 0.0213 | 0.0001 +/- 0.0000 | 80.19% |
-| B4b_Static_U2 | 100 | 0.0333 +/- 0.0025 | 0.0446 +/- 0.0031 | 0.66% +/- 0.06% | 0.65% | 0.78% | 0.1631 +/- 0.0100 | 0.0003 +/- 0.0000 | 0.85% |
-| B4c_Static_U3 | 100 | 0.0333 +/- 0.0025 | 0.0446 +/- 0.0031 | 0.94% +/- 0.43% | 0.94% | 1.23% | 0.4128 +/- 0.0230 | 0.0002 +/- 0.0001 | 20.29% |
-| Proposed_Adaptive_U | 100 | 0.0333 +/- 0.0025 | 0.0446 +/- 0.0031 | 0.75% +/- 0.29% | 0.75% | 0.87% | 0.3059 +/- 0.0185 | 0.0002 +/- 0.0001 | 12.18% |
+| B0_Naive | 100 | 0.0313 +/- 0.0027 | 0.0457 +/- 0.0035 | 20.79% +/- 1.19% | 20.80% | 25.04% | 0.0316 +/- 0.0023 | 0.0090 +/- 0.0010 | 0.00% |
+| B0c_MovingAverage_w6 | 100 | 0.0398 +/- 0.0031 | 0.0557 +/- 0.0039 | 24.61% +/- 1.29% | 24.60% | 28.27% | 0.0351 +/- 0.0024 | 0.0121 +/- 0.0011 | 0.00% |
+| B1_GRU_Base | 100 | 0.0333 +/- 0.0025 | 0.0446 +/- 0.0031 | 21.15% +/- 1.50% | 21.13% | 24.57% | 0.0288 +/- 0.0011 | 0.0085 +/- 0.0010 | 0.00% |
+| B1_GRU_Extended | 100 | 0.0333 +/- 0.0025 | 0.0446 +/- 0.0031 | 22.32% +/- 1.54% | 22.30% | 26.02% | 0.0277 +/- 0.0012 | 0.0089 +/- 0.0010 | 0.00% |
+| B2_HoltWinters | 100 | 0.1511 +/- 0.0165 | 0.1713 +/- 0.0174 | 15.78% +/- 3.47% | 15.79% | 17.23% | 0.1614 +/- 0.0207 | 0.0134 +/- 0.0055 | 0.62% |
+| B3_Fusion | 100 | 0.0333 +/- 0.0025 | 0.0446 +/- 0.0031 | 21.15% +/- 1.50% | 21.13% | 24.57% | 0.0288 +/- 0.0011 | 0.0085 +/- 0.0010 | 0.00% |
+| B4a_Static_U1 | 100 | 0.0333 +/- 0.0025 | 0.0446 +/- 0.0031 | 0.58% +/- 0.10% | 0.58% | 0.69% | 0.6692 +/- 0.0238 | 0.0002 +/- 0.0000 | 72.80% |
+| B4b_Static_U2 | 100 | 0.0333 +/- 0.0025 | 0.0446 +/- 0.0031 | 0.66% +/- 0.06% | 0.66% | 0.79% | 0.1631 +/- 0.0100 | 0.0003 +/- 0.0000 | 0.85% |
+| B4c_Static_U3 | 100 | 0.0333 +/- 0.0025 | 0.0446 +/- 0.0031 | 0.94% +/- 0.43% | 0.94% | 1.23% | 0.4128 +/- 0.0230 | 0.0002 +/- 0.0001 | 20.28% |
+| Proposed_Adaptive_U | 100 | 0.0333 +/- 0.0025 | 0.0446 +/- 0.0031 | 0.77% +/- 0.28% | 0.77% | 0.90% | 0.3009 +/- 0.0182 | 0.0002 +/- 0.0001 | 11.16% |
 | B0b_SeasonalNaive_m288 | 100 | 0.0971 +/- 0.0059 | 0.1247 +/- 0.0073 | 31.48% +/- 1.45% | 31.53% | 33.58% | 0.0787 +/- 0.0041 | 0.0293 +/- 0.0031 | 0.00% |
 
 <!-- BENCHMARK_TABLE_END -->
 
-> **Empirical Finding on Static $U_2$ vs Adaptive $U^*$**: In the 100-machine evaluation, Static $U_2$ (B4b) achieves an SLA breach rate of $0.66\%$ with an over-provisioning mean of $0.1631$, demonstrating empirical Pareto-dominance over Adaptive $U^*$ ($0.75\%$ breach, $0.3059$ over-provisioning). We report this finding transparently rather than artificially engineering heuristics to override it: $U_2$ (aleatoric EWMA error tracking) is a remarkably strong single-signal baseline during stable trace periods, whereas Adaptive $U^*$ maintains dynamic multi-signal arbitration across heterogeneous regimes at the cost of modest over-allocation.
+> **Empirical Finding on Static $U_2$ vs Adaptive $U^*$**: In the 100-machine evaluation, Static $U_2$ (B4b) achieves an SLA breach rate of $0.66\%$ with an over-provisioning mean of $0.1631$, demonstrating empirical Pareto-dominance over Adaptive $U^*$ ($0.77\%$ breach, $0.3009$ over-provisioning). We report this finding transparently rather than artificially engineering heuristics to override it: $U_2$ (aleatoric EWMA error tracking) is a remarkably strong single-signal baseline during stable trace periods, whereas Adaptive $U^*$ maintains dynamic multi-signal arbitration across heterogeneous regimes at the cost of modest over-allocation.
 
 ### Feature Ablation Study (Base vs Extended Tier)
 Comparing the Global GRU across 7 vs 15 features demonstrates the value of multi-resource telemetry:
@@ -377,7 +377,7 @@ Comparing the Global GRU across 7 vs 15 features demonstrates the value of multi
    - Machine `418695` is the very first machine in the 100-machine benchmark dataset.
    - Workload profile for Machine 418695: Moderate CPU demand (mean = 0.27, std = 0.10, peak = 0.48), representing a typical multi-tenant cloud workload.
 3. **Cluster-Wide Metrics Encompass All 100 Machines**:
-   - The master benchmark metrics (SLA breach rate = 0.75%, over-provisioning = 0.3059, MAE = 0.0333) and `figures/selector_choices.png` are evaluated across **all 100 machines** and **all 120,000+ timesteps**.
+   - The master benchmark metrics (SLA breach rate = 0.77%, over-provisioning = 0.3009, MAE = 0.0333) and `figures/selector_choices.png` are evaluated across **all 100 machines** and **all 120,000+ timesteps**.
 
 #### Multi-Machine Comparison Panels (4 Diverse Workload Archetypes)
 To visually inspect how the framework behaves across diverse server workloads simultaneously, we provide 4-machine 2x2 comparison panels across 4 distinct operational archetypes:
@@ -412,9 +412,9 @@ To verify metric stability across machine subsets and cluster scales, we evaluat
 
 > **Note**: This reuses the same trained GRU/HW models and calibrated $\beta^*$ from the main pipeline run. Only the evaluated machine subset changes across runs. This is a **machine-subset sensitivity analysis**, not an independent retraining experiment. True multi-seed retraining across model initializations belongs to Phase 2.
 
-- **Fixed 10% Buffer Mean SLA Breach**: **$21.33\%$**
-- **Proposed Adaptive $U^*$ Mean SLA Breach**: **$0.82\%$** (empirical result across all subsample seeds and cluster sizes)
-- **Average SLA Breach Reduction**: **$96.16\%$** across all subsample seeds and cluster sizes.
+- **Fixed 10% Buffer Mean SLA Breach**: **$21.34\%$**
+- **Proposed Adaptive $U^*$ Mean SLA Breach**: **$0.84\%$** (empirical result across all subsample seeds and cluster sizes)
+- **Average SLA Breach Reduction**: **$96.07\%$** across all subsample seeds and cluster sizes.
 
 ### Computational Efficiency & Profiling
 Evaluated with PyTorch on single-sample inference latency (1,000 repetitions) and memory footprints:
@@ -422,8 +422,8 @@ Evaluated with PyTorch on single-sample inference latency (1,000 repetitions) an
 | Component | Model Parameters | Single-Sample Latency | Memory Footprint |
 |---|:---:|:---:|:---:|
 | **Additive Holt-Winters (B2)** | N/A | < 0.050 ms | ~12.4 MB |
-| **Global GRU — Base Tier (7 feat)** | 3,969 | **0.352 ms** | ~18.6 MB |
-| **Global GRU — Extended Tier (15 feat)** | 4,737 | **0.378 ms** | ~21.2 MB |
+| **Global GRU — Base Tier (7 feat)** | 3,969 | **0.367 ms** | ~18.6 MB |
+| **Global GRU — Extended Tier (15 feat)** | 4,737 | **0.387 ms** | ~21.2 MB |
 | **Convex Forecast Fusion (B3)** | N/A | < 0.010 ms | ~8.2 MB |
 | **Tri-Factor Uncertainty Engine** | N/A | < 0.020 ms | ~14.5 MB |
 | **Adaptive Reliability Selector** | N/A | < 0.030 ms | ~11.0 MB |

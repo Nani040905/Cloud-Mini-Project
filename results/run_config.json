@@ -3,6 +3,8 @@
   "data_parts_processed_count": 500,
   "machine_count": 100,
   "random_seed": 42,
+  "time_horizon_bins": 8352,
+  "time_horizon_days": 29.0,
   "train_val_test_split": [
     0.7,
     0.15,
@@ -88,10 +90,15 @@
     14.0,
     16.0,
     18.0,
-    20.0
+    20.0,
+    25.0,
+    30.0,
+    35.0,
+    40.0,
+    50.0
   ],
   "sla_target": 0.01,
   "grace_band": 0.005,
-  "git_commit": "854b6ed",
-  "run_timestamp": "2026-09-11T14:05:24.760991Z"
+  "git_commit": "398baf7",
+  "run_timestamp": "2026-09-12T07:40:04.784353Z"
 }

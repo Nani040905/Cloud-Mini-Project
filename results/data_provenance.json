@@ -2,10 +2,17 @@
   "data_parts_processed_count": 500,
   "selected_machine_count": 100,
   "selected_machine_ids_hash": "a578f31bd64f7fba",
+  "time_horizon_bins": 8352,
+  "time_horizon_days": 29.0,
+  "train_val_test_split": [
+    0.7,
+    0.15,
+    0.15
+  ],
   "coverage_report_exists": true,
-  "run_config_git_commit": "854b6ed",
-  "run_timestamp": "2026-09-11T14:05:24.761991Z",
+  "run_config_git_commit": "398baf7",
+  "run_timestamp": "2026-09-12T07:40:04.785352Z",
   "note": "See data/processed/google/dataset_coverage_report.txt for full temporal coverage, NaN fraction, and machine eligibility statistics.",
-  "empirical_sla_breach_rate": "0.75% +/- 0.29%",
-  "empirical_over_prov_mean": "0.3059 +/- 0.0185"
+  "empirical_sla_breach_rate": "0.77% +/- 0.28%",
+  "empirical_over_prov_mean": "0.3009 +/- 0.0182"
 }
