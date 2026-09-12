@@ -286,6 +286,7 @@ def main():
     parser.add_argument("--all", action="store_true", help="Execute complete Phase 1 benchmark suite (Steps 6-14)")
     parser.add_argument("--steps", nargs="+", type=int, help="Specific step numbers to execute (e.g. --steps 6 7 8)")
     parser.add_argument("--eval-only", action="store_true", help="Run only Steps 12, 13, and 14")
+    parser.add_argument("--profile", action="store_true", help="Profile computational latency and model parameters")
     parser.add_argument("--days", type=float, default=None, help="Truncate time horizon to N days (e.g. 10.0 = 2,880 bins, 5.0 = 1,440 bins)")
     parser.add_argument("--reset-days", action="store_true", help="Reset time horizon back to full 29 days (8,352 bins)")
     args = parser.parse_args()
@@ -293,6 +294,9 @@ def main():
     if args.reset_days:
         from set_horizon import update_split_info
         update_split_info(days=29.0)
+        # If user only asked to reset days without specifying pipeline execution, finish cleanly
+        if not args.all and not args.steps and not args.eval_only and not args.profile:
+            return
     elif args.days is not None:
         from set_horizon import update_split_info
         update_split_info(days=args.days)
@@ -307,6 +311,9 @@ def main():
         steps_to_run = [12, 13, 14]
     elif args.steps:
         steps_to_run = args.steps
+    elif args.days is not None:
+        # If user passed --days without explicit steps, run full suite on that horizon
+        steps_to_run = list(STEPS.keys())
     else:
         # Default to full suite
         steps_to_run = list(STEPS.keys())
