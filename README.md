@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Trace: Google Cluster](https://img.shields.io/badge/Workload-Google%20Cluster%20Data-brightgreen.svg)](https://github.com/google/cluster-data)
 
-> **Empirical Result**: Traditional heuristic over-provisioning (+10% buffer) suffers a **20.77% to 31.48% SLA breach rate** on Google cluster workloads. Our proposed framework integrates **Convex Hybrid Forecasting** with **Dynamic Multi-Source Uncertainty Arbitration**, achieving an SLA breach reduction to **0.75%** (a 28× to 42× reduction vs naive heuristics, strictly compliant with the $\le 1.0\%$ cloud SLA budget / **99% SLA compliance**) with near-zero under-provisioning shortfall.
+> **Empirical Finding & Research Scope**: Traditional heuristic over-provisioning (+10% buffer) suffers a **20.79% to 31.48% SLA breach rate** across 100 production machines in the Google Cluster Trace v2 (2011). Sizing safety buffers via calibrated uncertainty quantification enforces a strict $\le 1.0\%$ breach budget (99% SLA compliance). At the 1% risk target, **Static $U_2$ (causal EWMA error tracking)** achieves a **0.66% ± 0.06%** breach rate with **0.1631** over-provisioning, while **Adaptive $U^*$ (dynamic arbitration)** achieves **0.77% ± 0.28%** breach rate with **0.3009** over-provisioning. While Static $U_2$ Pareto-dominates cluster-wide at this budget, machine-level decomposition reveals that Adaptive $U^*$ achieves lower breach rates on 67% of individual servers (reducing breaches on bursty/volatile nodes from $>1.0\%$ down to $0.24\%-0.40\%$). Rather than claiming universal dominance, our core research question investigates: *Under what workload and risk conditions does adaptive uncertainty selection provide an operational advantage over a fixed uncertainty estimator?*
 
 ---
 
@@ -63,17 +63,18 @@ This framework introduces **dynamic uncertainty quantification** into the resour
 
 ## 2. Why Static Cloud Heuristics Fail
 
-To demonstrate why static heuristics fail, we evaluated 100 deterministically sampled production machines from the **Google Cluster Trace v2 (2011)** across continuous five-minute time bins (70% train / 15% validation / 15% test).
+To demonstrate why static heuristics fail, we evaluated 100 deterministically sampled production machines from the **Google Cluster Trace v2 (2011)** across continuous five-minute time bins (70% train / 15% validation / 15% test). All heuristic baselines apply an industry-standard fixed $+10\%$ buffer ($A_t = \hat{y}_t \times 1.10$).
 
-| Policy | Forecast Method | Buffer Multiplier | SLA Breach Rate | Over-Provisioning Mean |
-| :--- | :--- | :--- | :---: | :---: |
-| **B0: Persistence** | $\hat{y}_t = y_{t-1}$ | Fixed $+10\%$ | **23.31%** | 0.0231 |
-| **B0b: Seasonal Naive** | $\hat{y}_t = y_{t-m}$ | Fixed $+10\%$ | **44.69%** | 0.0326 |
-| **B0c: Moving Average** | $\hat{y}_t = \text{mean}(y_{t-6:t-1})$ | Fixed $+10\%$ | **31.56%** | 0.0215 |
-| **B2: Holt-Winters** | Additive HW | Fixed $+10\%$ | **46.88%** | 0.0253 |
-| **B3: Forecast Fusion** | HW + GRU | Fixed $+10\%$ | **12.38%** | 0.0516 |
+| Policy | Forecast Method | Buffer Multiplier | SLA Breach Rate (Macro 95% CI) | SLA Breach (Pooled) | Over-Provisioning Mean |
+| :--- | :--- | :--- | :---: | :---: | :---: |
+| **B0: Persistence (Naive)** | $\hat{y}_t = y_{t-1}$ | Fixed $+10\%$ | **20.79% ± 1.19%** | 20.80% | 0.0316 ± 0.0023 |
+| **B0b: Seasonal Naive** ($m=288$) | $\hat{y}_t = y_{t-288}$ | Fixed $+10\%$ | **31.48% ± 1.45%** | 31.53% | 0.0787 ± 0.0041 |
+| **B0c: Moving Average** ($w=6$) | $\hat{y}_t = \text{mean}(y_{t-6:t-1})$ | Fixed $+10\%$ | **24.61% ± 1.29%** | 24.60% | 0.0351 ± 0.0024 |
+| **B1: Global GRU** | Recurrent Neural Net | Fixed $+10\%$ | **21.15% ± 1.50%** | 21.13% | 0.0288 ± 0.0011 |
+| **B2: Holt-Winters** | Additive Holt-Winters | Fixed $+10\%$ | **15.78% ± 3.47%** | 15.79% | 0.1614 ± 0.0207 |
+| **B3: Forecast Fusion** | HW + GRU | Fixed $+10\%$ | **21.15% ± 1.50%** | 21.13% | 0.0288 ± 0.0011 |
 
-> **Key Takeaway**: Even when using our high-accuracy fused forecaster ($B_3$), which achieves a low prediction error ($\text{MAE} = 0.0420$), adding a fixed 10% buffer still results in **12.38% SLA violations**—**12 times higher** than acceptable cloud SLA limits ($\le 1.0\%$). Similarly, 30-minute causal moving average smoothing ($B_{0c}$) suffers **31.56% SLA violations**. Accurate predictions alone do not solve cloud resource management; **calibrated uncertainty quantification is non-negotiable**.
+> **Key Takeaway**: Even when using our neural/fused forecaster ($B_1$/$B_3$), which achieves a low prediction error ($\text{MAE} = 0.0333 \pm 0.0025$), adding a fixed 10% buffer still results in **21.15% SLA violations**—over **21 times higher** than acceptable cloud SLA limits ($\le 1.0\%$). Similarly, persistence ($B_0$) and 30-minute causal moving average smoothing ($B_{0c}$) suffer **20.79%** and **24.61% SLA violations**, while seasonal naive ($B_{0b}$) suffers **31.48%**. Accurate predictions alone do not solve cloud resource management; **calibrated uncertainty quantification is non-negotiable**.
 
 ---
 
@@ -281,7 +282,7 @@ python run_pipeline.py --profile
 ## 5. How to Explain This Project to Others
 
 ### The 30-Second Elevator Pitch
-> *"Cloud data centers constantly waste millions of dollars over-provisioning servers, or they under-allocate and crash applications with SLA violations. Traditional auto-scalers just predict CPU usage and slap on an arbitrary 10% safety buffer. We proved on 100 Google servers that this 10% rule causes over 20% SLA violations. Our system combines statistical and neural forecasters with three distinct uncertainty signals. By measuring the real-time reliability of each uncertainty signal, our system dynamically expands safety buffers right before sudden spikes and contracts them during calm periods, drastically cutting SLA breaches while minimizing wasted capacity."*
+> *"Cloud data centers face a multi-billion dollar dilemma: over-allocating server capacity wastes massive power and silicon, while under-allocating crashes applications with SLA violations. Traditional auto-scalers just predict CPU usage and slap on an arbitrary 10% safety buffer. We proved on 100 Google servers that this 10% rule causes over 20% SLA violations. Our research establishes that sizing safety margins via calibrated uncertainty quantification enforces strict 99% SLA compliance ($\le 1.0\%$ breach budget). By comparing fixed uncertainty estimators against adaptive multi-source arbitration ($U^*$), we show that while causal EWMA error tracking ($U_2$) excels during stable periods, dynamic arbitration outperforms on 67% of individual servers by proactively expanding margins during volatile bursts and regime shifts."*
 
 ### The 2-Minute Technical Summary
 > *"The problem with cloud workload auto-scaling is that machine learning models provide point forecasts without confidence bounds. When sudden bursty workloads hit, point predictions lag behind reality, causing severe under-provisioning. 
@@ -292,7 +293,7 @@ python run_pipeline.py --profile
 > 
 > Because no single uncertainty metric dominates under all cluster conditions, we introduce an Adaptive Reliability Selector that tracks the rolling Spearman rank correlation between each signal and prediction error. It dynamically routes the winning uncertainty metric into a constrained allocation equation: $A_t = \min(1.0, \hat{y}_t + \beta U^*_t)$. 
 > 
-> We calibrate $\beta$ on the validation split to **target** an SLA breach rate of $\le 1.0\%$. On held-out test evaluations across 100 machines, the proposed method achieves an empirical breach rate well below this target, substantially reducing violation frequency while keeping over-provisioning waste strictly bounded."*
+> We calibrate $\beta$ on the validation split to target an SLA breach rate of $\le 1.0\%$. Under this budget, Static $U_2$ achieves $0.66\% \pm 0.06\%$ breach and $0.1631$ over-provisioning, while Adaptive $U^*$ achieves $0.77\% \pm 0.28\%$ breach and $0.3009$ over-provisioning. On a macro cluster-wide level, Static $U_2$ Pareto-dominates; however, machine-level decomposition demonstrates that Adaptive $U^*$ achieves superior breach protection on 67% of individual servers. This reframes our research question: under what specific operational risk budgets and workload regimes does adaptive uncertainty arbitration provide an advantage over a fixed estimator?"*
 
 ### Slide-by-Slide Defense Structure
 
@@ -300,10 +301,10 @@ python run_pipeline.py --profile
 | :---: | :--- | :--- | :--- |
 | **1** | **Title & Problem** | Dual cloud dilemma graphic (SLA penalty vs Energy waste) | Cloud resource allocation is a multi-billion dollar optimization problem. Fixed safety margins fail. |
 | **2** | **Empirical Flaw of Heuristics** | Baseline SLA breach bar chart (21% - 32% violations) | A 10% buffer on Google trace data causes 1 in 5 requests to breach SLAs. Point forecasts lack risk awareness. |
-| **3** | **Hybrid Forecasting Architecture** | Block diagram: HW + GRU $\rightarrow$ Convex Fusion | Combining statistical diurnal tracking with a deep recurrent model yields lowest overall MAE ($0.0387$). |
+| **3** | **Hybrid Forecasting Architecture** | Block diagram: HW + GRU $\rightarrow$ Convex Fusion | Combining statistical diurnal tracking with a deep recurrent model yields lowest overall MAE ($0.0333$). |
 | **4** | **Tri-Factor Uncertainty Signals** | Plot of $U_1, U_2, U_3$ vs Actual Error Spike | Disentangling epistemic divergence, drift, and volatility allows us to detect danger before it manifests. |
-| **5** | **Dynamic Reliability Selector** | Distribution of winning signals ($U_1: 71.5\%, U_3: 15.6\%, U_2: 12.9\%$) | No single signal works everywhere. Rolling Spearman correlation routes the most reliable signal at every step. |
-| **6** | **Results & SLA Compliance** | Comprehensive benchmark comparison table | Our adaptive approach reduces SLA breaches while maintaining low over-provisioning. |
+| **5** | **Dynamic Reliability Selector** | Distribution of winning signals ($U_2: 46.1\%, U_3: 38.0\%, U_1: 15.9\%$) | No single signal works everywhere. Rolling Spearman correlation routes the most reliable signal at every step. |
+| **6** | **Results & SLA Compliance** | Comprehensive benchmark comparison table | Static $U_2$ Pareto-dominates on average, but Adaptive $U^*$ wins on 67% of servers during volatile regimes. |
 | **7** | **Conclusion & Impact** | Cost-savings summary & latency guarantee | Calibrated uncertainty quantification transforms ML from passive monitoring into production-safe automated control. |
 
 ### Anticipated Viva & Interview Questions with Model Answers
@@ -357,7 +358,23 @@ Evaluated on **100 production machines** from the Google Cluster Trace across co
 
 <!-- BENCHMARK_TABLE_END -->
 
-> **Empirical Finding on Static $U_2$ vs Adaptive $U^*$**: In the 100-machine evaluation, Static $U_2$ (B4b) achieves an SLA breach rate of $0.66\%$ with an over-provisioning mean of $0.1631$, demonstrating empirical Pareto-dominance over Adaptive $U^*$ ($0.77\%$ breach, $0.3009$ over-provisioning). We report this finding transparently rather than artificially engineering heuristics to override it: $U_2$ (aleatoric EWMA error tracking) is a remarkably strong single-signal baseline during stable trace periods, whereas Adaptive $U^*$ maintains dynamic multi-signal arbitration across heterogeneous regimes at the cost of modest over-allocation.
+> **Empirical Finding on Static $U_2$ vs Adaptive $U^*$**: In the 100-machine evaluation at the 1% SLA target, Static $U_2$ (B4b) achieves an SLA breach rate of $0.66\% \pm 0.06\%$ with an over-provisioning mean of $0.1631 \pm 0.0100$, demonstrating empirical Pareto-dominance over Adaptive $U^*$ ($0.77\% \pm 0.28\%$ breach, $0.3009 \pm 0.0182$ over-provisioning) on the cluster-wide macro average. We report this transparently: we do not claim that Adaptive $U^*$ is globally superior to Static $U_2$. Rather, the core scientific question is: *Under what workload and risk conditions does adaptive uncertainty selection provide an advantage over a fixed uncertainty estimator?*
+
+#### Machine-Level Performance Decomposition (67 vs 26 Split)
+A cluster-wide macro average obscures vital cross-machine heterogeneity. When decomposing the paired machine differences ($U^* - U_2$):
+- **67 of 100 Machines Favor Adaptive $U^*$**: On two-thirds of the cluster, Adaptive $U^*$ achieves a strictly lower SLA breach rate than Static $U_2$ (median paired difference: $-0.24\%$). In particular, on volatile nodes where Static $U_2$ exceeds the $1.0\%$ SLA breach target ($1.04\% - 1.36\%$ violations, e.g., machines `30790124`, `38744298`, `336035825`), Adaptive $U^*$ successfully suppresses violations down to $0.24\% - 0.40\%$ by dynamically scaling buffers during unpredictable burst regimes. These machines exhibit high residual autocorrelation ($\bar{r}_{\text{res}} = 0.253$) and near-zero forecast bias ($\bar{b} \approx 0.000$).
+- **26 of 100 Machines Favor Static $U_2$**: Static $U_2$ achieves lower breach rates on 26 machines. These machines exhibit lower residual autocorrelation ($\bar{r}_{\text{res}} = 0.037$) and positive point-forecast bias ($\bar{b} = +0.0130$ on top machines), meaning the point forecaster systematically underpredicts utilization. On these nodes, Static $U_2$'s continuous tracking of EWMA error prevents under-provisioning.
+- **7 Machines Tied**: Identical breach rates under both policies.
+
+#### Investigation of the 240-Minute Incident (Machine 2107201469)
+The cluster-wide breach rate of Adaptive $U^*$ is inflated by an extreme outlier incident: a **240-minute continuous SLA breach** (48 consecutive 5-minute bins from bin 7778 to 7825) on Machine `2107201469`:
+- **Workload Plateau**: The machine's actual CPU utilization stabilized into an ultra-flat plateau at $y_t \approx 0.4804$ ($\text{std} = 0.0022$).
+- **Forecast Bias**: The neural forecaster exhibited a persistent negative bias ($\hat{y}_{\text{fused}} \approx 0.4512$, underpredicting by $0.0292$).
+- **Uncertainty Starvation**: Because workload variance vanished during the plateau, 30-minute rolling volatility collapsed to $U_3 \approx 0.00137$.
+- **Selector Rank Failure**: The rolling Spearman selector chose $U_3$ for 100% of the 48 bins ($\bar{\rho}_{U_3} = +0.2217 > \bar{\rho}_{U_2} = +0.1759 > \bar{\rho}_{U_1} = -0.0421$) because minor rank movements correlated over the 75-bin lookback.
+- **Resulting Allocation**: Buffer allocation was starved ($A_t = 0.4512 + 8.0 \times 0.00137 = 0.4622$), creating a persistent shortfall of $y_t - A_t \approx +0.0182 > 0.005$ across all 48 bins.
+- **Comparison to Static $U_2$**: On the exact same machine and time window, Static $U_2$ tracked the absolute forecast error directly via EWMA ($U_2 \approx 0.0326$), allocating $A_t = 0.4512 + 5.0 \times 0.0326 = 0.6144$ and experiencing **0 SLA breaches**.
+- **Scientific Takeaway**: Rank-correlation-based uncertainty arbitration is susceptible to magnitude starvation when point forecasters suffer systematic bias during low-volatility plateaus. EWMA residual tracking ($U_2$) provides intrinsic bias protection that pure spread metrics ($U_3$) lack.
 
 ### Feature Ablation Study (Base vs Extended Tier)
 Comparing the Global GRU across 7 vs 15 features demonstrates the value of multi-resource telemetry:

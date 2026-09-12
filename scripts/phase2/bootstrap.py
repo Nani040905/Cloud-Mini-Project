@@ -14,7 +14,7 @@ Implements:
    - delta_i = breach_rate_Adaptive_i - breach_rate_U2_i
    - Machine-level paired difference bootstrap
    - Mean delta, median delta, 95% bootstrap CI
-   - Two-tailed empirical bootstrap p-value
+   - Zero-exclusion check (ci_excludes_zero)
 4. Outputs:
    - results/phase2/breach_confidence_intervals.csv
    - results/phase2/paired_policy_difference.csv
