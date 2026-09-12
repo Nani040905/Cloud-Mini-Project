@@ -1,0 +1,41 @@
+{
+  "phase1_code_commit": "9f818de81036d6166273e2ef3a4a48cf028630cd",
+  "phase1_code_commit_short": "9f818de",
+  "phase1_experiment_commit": "398baf7",
+  "phase2_branch": "phase2/reliability-frontier",
+  "dataset": "Google Cluster Trace v2 (2011)",
+  "benchmark_machines": 100,
+  "total_bins": 8352,
+  "total_days": 29.0,
+  "bin_duration_minutes": 5,
+  "split_ratios": {
+    "train": 0.70,
+    "validation": 0.15,
+    "test": 0.15
+  },
+  "grace_band": 0.005,
+  "sla_budgets": [0.05, 0.02, 0.01, 0.005, 0.001],
+  "candidate_betas": [
+    0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0, 18.0, 20.0, 25.0, 30.0, 35.0, 40.0, 50.0
+  ],
+  "bootstrap_replicates": 2000,
+  "bootstrap_seed": 42,
+  "random_seed": 42,
+  "phase1_verified_results": {
+    "Adaptive_U_star": {
+      "test_sla_breach_rate": 0.007687,
+      "test_overprovisioning": 0.300890
+    },
+    "Static_U2": {
+      "test_sla_breach_rate": 0.006623,
+      "test_overprovisioning": 0.163098
+    }
+  },
+  "invariants": {
+    "never_tune_on_test": true,
+    "preserve_phase1_sealed_artifacts": true,
+    "immutable_breach_definition": "y_t > A_t + 0.005",
+    "shortfall_severity_definition": "max(0, y_t - (A_t + 0.005))",
+    "incident_definition": "consecutive sequence of breach bins for the same machine"
+  }
+}
