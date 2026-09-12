@@ -14,6 +14,7 @@ Tests:
 
 import unittest
 import numpy as np
+import pandas as pd
 
 import os
 import sys
@@ -216,6 +217,46 @@ class TestReliabilityDecomposition(unittest.TestCase):
 
                 self.assertAlmostEqual(calc_breach, sub_auth['sla_breach_rate'], places=5)
                 self.assertAlmostEqual(calc_overprov, sub_auth['over_prov_mean'], places=5)
+
+    def test_09_incident_continuity_and_worst_incident_trace(self):
+        """
+        Verify that the automated worst incident diagnostic correctly isolates the
+        240-minute incident, confirms strict bin_idx and timestamp_sec continuity (+1, +300s),
+        and verifies that no rows were silently dropped or forward-filled.
+        """
+        from scripts.phase2.analyze_worst_incident import find_worst_incident, extract_incident_trace
+
+        alloc_path = os.path.join(PROJECT_ROOT, "results", "phase2", "phase1_test_allocations.parquet")
+        sel_path = os.path.join(PROJECT_ROOT, "uncertainty", "selector_test.csv")
+        self.assertTrue(os.path.exists(alloc_path))
+        self.assertTrue(os.path.exists(sel_path))
+
+        alloc_df = pd.read_parquet(alloc_path)
+        sel_df = pd.read_csv(sel_path)
+
+        worst = find_worst_incident(alloc_df, policy="Adaptive_U_star")
+        self.assertEqual(worst['machine_id'], 2107201469)
+        self.assertEqual(worst['start_bin'], 7778)
+        self.assertEqual(worst['end_bin'], 7825)
+        self.assertEqual(worst['length_bins'], 48)
+        self.assertEqual(worst['duration_min'], 240.0)
+
+        trace = extract_incident_trace(worst, alloc_df, sel_df)
+        self.assertEqual(len(trace), 48)
+
+        # Verify strict bin_idx continuity (+1)
+        bin_diffs = trace['bin_idx'].values[1:] - trace['bin_idx'].values[:-1]
+        self.assertTrue(np.all(bin_diffs == 1))
+
+        # Verify physical timestamp continuity (+300.0s)
+        time_diffs = trace['timestamp_sec'].values[1:] - trace['timestamp_sec'].values[:-1]
+        self.assertTrue(np.all(time_diffs == 300.0))
+
+        # Verify all 48 rows are continuous breaches for U*
+        self.assertEqual(trace['is_breach_ustar'].sum(), 48)
+
+        # Verify Static U2 had 0 breaches on the exact same interval
+        self.assertEqual(trace['is_breach_u2'].sum(), 0)
 
 
 if __name__ == '__main__':
